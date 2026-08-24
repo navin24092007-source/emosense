@@ -14,11 +14,10 @@ if ai_service_dir not in sys.path:
 
 try:
     from app.emotion_model import recognizer, EMOTION_LABELS
-except ImportError:
-    # If app path differs, try direct import
+except Exception:
     try:
         from ai_service.app.emotion_model import recognizer, EMOTION_LABELS
-    except Exception as e:
+    except Exception:
         recognizer = None
         EMOTION_LABELS = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
 

@@ -58,29 +58,66 @@ class EmotionRecognizer:
         self.labels = EMOTION_LABELS
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        cascade_dir = cv2.data.haarcascades
-        self.face_cascade_default = cv2.CascadeClassifier(cascade_dir + 'haarcascade_frontalface_default.xml')
-        self.face_cascade_alt = cv2.CascadeClassifier(cascade_dir + 'haarcascade_frontalface_alt.xml')
-        self.face_cascade_alt2 = cv2.CascadeClassifier(cascade_dir + 'haarcascade_frontalface_alt2.xml')
-        self.face_cascade_profile = cv2.CascadeClassifier(cascade_dir + 'haarcascade_profileface.xml')
+        # Safely locate OpenCV cascade directory across different OS / Docker environments
+        cascade_dir = ""
+        if hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades") and cv2.data.haarcascades:
+            cascade_dir = str(cv2.data.haarcascades)
+        elif hasattr(cv2, "__file__"):
+            possible_dir = os.path.join(os.path.dirname(cv2.__file__), "data")
+            if os.path.exists(possible_dir):
+                cascade_dir = possible_dir + os.sep
+
+        def load_cascade(filename: str):
+            try:
+                if cascade_dir:
+                    full_path = os.path.join(cascade_dir, filename)
+                    if os.path.exists(full_path):
+                        c = cv2.CascadeClassifier(full_path)
+                        if not c.empty():
+                            return c
+                # Fallback to direct name or samples
+                c = cv2.CascadeClassifier(filename)
+                return c
+            except Exception:
+                return None
+
+        self.face_cascade_default = load_cascade('haarcascade_frontalface_default.xml')
+        self.face_cascade_alt = load_cascade('haarcascade_frontalface_alt.xml')
+        self.face_cascade_alt2 = load_cascade('haarcascade_frontalface_alt2.xml')
+        self.face_cascade_profile = load_cascade('haarcascade_profileface.xml')
         
-        self.smile_cascade = cv2.CascadeClassifier(cascade_dir + 'haarcascade_smile.xml')
-        self.eye_cascade = cv2.CascadeClassifier(cascade_dir + 'haarcascade_eye.xml')
+        self.smile_cascade = load_cascade('haarcascade_smile.xml')
+        self.eye_cascade = load_cascade('haarcascade_eye.xml')
         
         # Load CNN model if weights file exists
         self.model = EmotionCNN(num_classes=7).to(self.device)
         self.model_loaded = False
 
-        if os.path.exists(weights_path):
+        # Resolve weights file relative to this file
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        potential_paths = [
+            weights_path,
+            os.path.join(current_dir, "models", "fer2013_model.pth"),
+            os.path.join(current_dir, "..", "models", "fer2013_model.pth"),
+            "ai_service/app/models/fer2013_model.pth"
+        ]
+
+        resolved_weights = None
+        for p in potential_paths:
+            if p and os.path.exists(p):
+                resolved_weights = p
+                break
+
+        if resolved_weights:
             try:
-                self.model.load_state_dict(torch.load(weights_path, map_location=self.device))
+                self.model.load_state_dict(torch.load(resolved_weights, map_location=self.device))
                 self.model.eval()
                 self.model_loaded = True
-                print(f"[AI Service] Successfully loaded fine-tuned model weights from {weights_path}")
+                print(f"[AI Service] Successfully loaded fine-tuned model weights from {resolved_weights}")
             except Exception as e:
-                print(f"[AI Service] Failed to load model weights from {weights_path}: {e}")
+                print(f"[AI Service] Failed to load model weights from {resolved_weights}: {e}")
         else:
-            print(f"[AI Service] Model weights not found at {weights_path}. Running with dynamic Computer Vision inference engine.")
+            print(f"[AI Service] Model weights not found. Running with dynamic Computer Vision inference engine.")
 
         # Preprocessing pipeline
         self.transform = transforms.Compose([
@@ -104,48 +141,63 @@ class EmotionRecognizer:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
 
         # Pass 1: Standard detection on raw grayscale
-        faces = self.face_cascade_default.detectMultiScale(
-            gray,
-            scaleFactor=1.1,
-            minNeighbors=3,
-            minSize=(30, 30)
-        )
-        if len(faces) > 0:
-            return [tuple(f) for f in faces]
+        if self.face_cascade_default and not self.face_cascade_default.empty():
+            try:
+                faces = self.face_cascade_default.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,
+                    minNeighbors=3,
+                    minSize=(30, 30)
+                )
+                if len(faces) > 0:
+                    return [tuple(f) for f in faces]
+            except Exception:
+                pass
 
-        # Pass 2: CLAHE contrast equalized pass (essential for backlit & high dynamic range webcam scenes)
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-        cl_gray = clahe.apply(gray)
+        # Pass 2: CLAHE contrast equalized pass
+        try:
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            cl_gray = clahe.apply(gray)
+        except Exception:
+            cl_gray = gray
         
-        for cascade in [self.face_cascade_default, self.face_cascade_alt, self.face_cascade_alt2]:
-            faces = cascade.detectMultiScale(
-                cl_gray,
-                scaleFactor=1.06,
-                minNeighbors=2,
-                minSize=(25, 25)
-            )
-            if len(faces) > 0:
-                return [tuple(f) for f in faces]
+        cascades = [c for c in [self.face_cascade_default, self.face_cascade_alt, self.face_cascade_alt2] if c and not c.empty()]
+        for cascade in cascades:
+            try:
+                faces = cascade.detectMultiScale(
+                    cl_gray,
+                    scaleFactor=1.06,
+                    minNeighbors=2,
+                    minSize=(25, 25)
+                )
+                if len(faces) > 0:
+                    return [tuple(f) for f in faces]
+            except Exception:
+                pass
 
-        # Pass 3: Profile Face on normal and horizontally flipped image
-        faces = self.face_cascade_profile.detectMultiScale(
-            cl_gray,
-            scaleFactor=1.06,
-            minNeighbors=2,
-            minSize=(25, 25)
-        )
-        if len(faces) > 0:
-            return [tuple(f) for f in faces]
+        # Pass 3: Profile Face
+        if self.face_cascade_profile and not self.face_cascade_profile.empty():
+            try:
+                faces = self.face_cascade_profile.detectMultiScale(
+                    cl_gray,
+                    scaleFactor=1.06,
+                    minNeighbors=2,
+                    minSize=(25, 25)
+                )
+                if len(faces) > 0:
+                    return [tuple(f) for f in faces]
 
-        cl_flipped = cv2.flip(cl_gray, 1)
-        faces = self.face_cascade_profile.detectMultiScale(
-            cl_flipped,
-            scaleFactor=1.06,
-            minNeighbors=2,
-            minSize=(25, 25)
-        )
-        if len(faces) > 0:
-            return [(w - int(f[0]) - int(f[2]), int(f[1]), int(f[2]), int(f[3])) for f in faces]
+                cl_flipped = cv2.flip(cl_gray, 1)
+                faces = self.face_cascade_profile.detectMultiScale(
+                    cl_flipped,
+                    scaleFactor=1.06,
+                    minNeighbors=2,
+                    minSize=(25, 25)
+                )
+                if len(faces) > 0:
+                    return [(w - int(f[0]) - int(f[2]), int(f[1]), int(f[2]), int(f[3])) for f in faces]
+            except Exception:
+                pass
 
         # Pass 4: Skin color segmentation contour localization
         if len(image.shape) == 3:
