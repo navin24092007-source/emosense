@@ -1,11 +1,16 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { predictFrameFromBase64 } from './aiService';
+import { predictWithExternalLLM, LLMVisionResponse } from './llmVisionService';
 import { EmotionLog } from '../models/EmotionLog';
 import { Session } from '../models/Session';
+
+// Per-socket processing lock to prevent overlapping Gemini calls
+const processingLocks = new Map<string, boolean>();
 
 export const setupSocketIO = (io: SocketIOServer) => {
   io.on('connection', (socket: Socket) => {
     console.log(`[Socket.io] Client connected: ${socket.id}`);
+    processingLocks.set(socket.id, false);
 
     socket.on('startSession', async (data: { sessionId: string }) => {
       const { sessionId } = data;
@@ -16,14 +21,62 @@ export const setupSocketIO = (io: SocketIOServer) => {
       }
     });
 
-    socket.on('frame', async (data: { sessionId: string; frame: string }) => {
-      const { sessionId, frame } = data;
+    socket.on('frame', async (data: { sessionId: string; frame: string; engine?: string; apiKey?: string }) => {
+      const { sessionId, frame, engine, apiKey } = data;
       if (!frame) return;
-      
-      console.log(`[Socket.io] Received frame for session ${sessionId} (size: ${frame.length} chars)`);
+
+      // If using Gemini/OpenAI, skip frame if a previous call is still in-flight
+      const useExternalLLM = engine === 'gemini' || engine === 'openai';
+      if (useExternalLLM && processingLocks.get(socket.id)) {
+        return; // Drop this frame — previous Gemini call still pending
+      }
+
+      console.log(`[Socket.io] Frame for session ${sessionId} (engine: ${engine || 'local'}, size: ${frame.length})`);
 
       try {
-        const prediction = await predictFrameFromBase64(frame);
+        if (useExternalLLM) {
+          processingLocks.set(socket.id, true);
+        }
+
+        let prediction: any;
+
+        if (useExternalLLM) {
+          const resolvedKey = apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
+          if (!resolvedKey) {
+            socket.emit('emotionError', { message: 'No API key configured for external Vision LLM' });
+            processingLocks.set(socket.id, false);
+            return;
+          }
+
+          try {
+            const llmResult: LLMVisionResponse = await predictWithExternalLLM(
+              frame,
+              resolvedKey,
+              (engine as 'gemini' | 'openai') || 'auto'
+            );
+            prediction = {
+              emotion: llmResult.emotion,
+              confidence: llmResult.confidence,
+              all_probs: llmResult.all_probs,
+              bbox: llmResult.bbox || [30, 20, 180, 200],
+              action_units: llmResult.action_units,
+              compound_label: llmResult.compound_label,
+              valence: llmResult.valence,
+              arousal: llmResult.arousal,
+              explanation: llmResult.explanation,
+              model_provider: llmResult.model_provider
+            };
+          } catch (llmErr: any) {
+            console.warn(`[Socket.io] LLM Vision failed, falling back to local: ${llmErr.message}`);
+            prediction = await predictFrameFromBase64(frame);
+          }
+
+          processingLocks.set(socket.id, false);
+        } else {
+          // Default: use local PyTorch microservice
+          prediction = await predictFrameFromBase64(frame);
+        }
+
         const timestamp = new Date();
 
         // Save log asynchronously to DB if valid sessionId and face is detected
@@ -43,7 +96,13 @@ export const setupSocketIO = (io: SocketIOServer) => {
           confidence: prediction.confidence,
           all_probs: prediction.all_probs,
           bbox: prediction.bbox,
-          timestamp: timestamp.toISOString()
+          timestamp: timestamp.toISOString(),
+          action_units: prediction.action_units,
+          compound_label: prediction.compound_label,
+          valence: prediction.valence,
+          arousal: prediction.arousal,
+          explanation: prediction.explanation,
+          model_provider: prediction.model_provider
         };
 
         // Broadcast to all clients watching this session (and reply to sender)
@@ -53,6 +112,7 @@ export const setupSocketIO = (io: SocketIOServer) => {
           socket.emit('emotionUpdate', updatePayload);
         }
       } catch (error: any) {
+        processingLocks.set(socket.id, false);
         socket.emit('emotionError', { message: 'Frame analysis failed', error: error.message });
       }
     });
@@ -66,6 +126,7 @@ export const setupSocketIO = (io: SocketIOServer) => {
     });
 
     socket.on('disconnect', () => {
+      processingLocks.delete(socket.id);
       console.log(`[Socket.io] Client disconnected: ${socket.id}`);
     });
   });

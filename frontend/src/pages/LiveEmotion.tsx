@@ -33,6 +33,11 @@ export const LiveEmotion: React.FC = () => {
   const [logs, setLogs] = useState<EmotionLog[]>([]);
   const [webcamError, setWebcamError] = useState<string | null>(null);
 
+  // AI Engine Selection State
+  const [aiEngine, setAiEngine] = useState<'local' | 'gemini' | 'openai'>('local');
+  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('emosense_llm_api_key') || '');
+  const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
+
   // Explainer modal state
   const [explainerOpen, setExplainerOpen] = useState<boolean>(false);
   const [explainerData, setExplainerData] = useState<EmotionExplanation | null>(null);
@@ -40,6 +45,19 @@ export const LiveEmotion: React.FC = () => {
 
   const intervalRef = useRef<any>(null);
   const lastEmotionRef = useRef<string | null>(null);
+  const aiEngineRef = useRef(aiEngine);
+  const apiKeyRef = useRef(apiKey);
+
+  // Keep refs in sync with state so the interval callback sees the latest values
+  useEffect(() => { aiEngineRef.current = aiEngine; }, [aiEngine]);
+  useEffect(() => { apiKeyRef.current = apiKey; }, [apiKey]);
+
+  const handleSaveApiKey = (key: string) => {
+    setApiKey(key);
+    localStorage.setItem('emosense_llm_api_key', key);
+    setShowKeyModal(false);
+    soundManager.playSuccessChime();
+  };
 
   // Initialize Socket.io listener
   useEffect(() => {
@@ -122,10 +140,11 @@ export const LiveEmotion: React.FC = () => {
       const socket = getSocket();
       socket.emit('startSession', { sessionId: session._id });
 
-      // Frame capture loop (every 300ms)
+      // Adaptive frame rate: 300ms for local PyTorch, 2500ms for external LLM (API latency)
+      const frameInterval = aiEngine === 'local' ? 300 : 2500;
       intervalRef.current = setInterval(() => {
         captureAndSendFrame(session._id);
-      }, 300);
+      }, frameInterval);
     } catch (err: any) {
       alert('Failed to start live session: ' + err.message);
     }
@@ -168,7 +187,12 @@ export const LiveEmotion: React.FC = () => {
     const base64Frame = canvas.toDataURL('image/jpeg', 0.6);
 
     const socket = getSocket();
-    socket.emit('frame', { sessionId, frame: base64Frame });
+    socket.emit('frame', { 
+      sessionId, 
+      frame: base64Frame,
+      engine: aiEngineRef.current !== 'local' ? aiEngineRef.current : undefined,
+      apiKey: aiEngineRef.current !== 'local' && apiKeyRef.current ? apiKeyRef.current : undefined
+    });
   };
 
   const handleExplainLive = async () => {
@@ -219,6 +243,52 @@ export const LiveEmotion: React.FC = () => {
 
         {/* Controls & Context Picker */}
         <div className="flex flex-wrap items-center gap-3">
+          {/* AI Engine Switcher */}
+          <div className="flex bg-slate-900 border border-slate-800 rounded-2xl p-1">
+            <button
+              onClick={() => setAiEngine('local')}
+              disabled={isStreaming}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                aiEngine === 'local' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              Local SE-ResNet
+            </button>
+            <button
+              onClick={() => {
+                setAiEngine('gemini');
+                if (!apiKey) setShowKeyModal(true);
+              }}
+              disabled={isStreaming}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                aiEngine === 'gemini' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              🧠 Gemini Vision
+            </button>
+            <button
+              onClick={() => {
+                setAiEngine('openai');
+                if (!apiKey) setShowKeyModal(true);
+              }}
+              disabled={isStreaming}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                aiEngine === 'openai' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              🤖 GPT-4o
+            </button>
+            <button
+              onClick={() => setShowKeyModal(true)}
+              title="Configure API Key"
+              className="p-1.5 rounded-xl text-slate-400 hover:text-amber-400 transition-colors ml-1"
+            >
+              🔑
+            </button>
+          </div>
+
+          {/* Context Picker */}
           <div className="flex bg-slate-900 border border-slate-800 rounded-2xl p-1">
             <button
               onClick={() => setContext('education')}
@@ -414,6 +484,56 @@ export const LiveEmotion: React.FC = () => {
         explanation={explainerData}
         loading={explainerLoading}
       />
+
+      {/* API Key Configuration Modal */}
+      {showKeyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-700 bg-slate-900 max-w-md w-full space-y-5 shadow-2xl relative">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <span>🔑</span>
+                <span>Configure Vision LLM API Key</span>
+              </h3>
+              <button 
+                onClick={() => setShowKeyModal(false)}
+                className="text-slate-400 hover:text-white text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Enter your <strong>Google Gemini API Key</strong> or <strong>OpenAI API Key</strong> for live webcam emotion detection powered by multimodal Vision AI.
+            </p>
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">API Key</label>
+              <input
+                type="password"
+                defaultValue={apiKey}
+                placeholder="AIzaSy... or sk-proj-..."
+                id="live-api-key-input"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowKeyModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const input = document.getElementById('live-api-key-input') as HTMLInputElement;
+                  if (input) handleSaveApiKey(input.value.trim());
+                }}
+                className="btn-primary px-5 py-2 rounded-xl text-xs font-bold"
+              >
+                Save Key
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
