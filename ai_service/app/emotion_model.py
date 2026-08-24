@@ -323,6 +323,22 @@ class EmotionRecognizer:
         if face_crop.size == 0:
             face_crop = image
 
+        # Eye-Alignment & Deskewing
+        if self.eye_cascade and not self.eye_cascade.empty() and face_crop.shape[0] >= 30 and face_crop.shape[1] >= 30:
+            gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY) if len(face_crop.shape) == 3 else face_crop
+            upper_crop = gray_crop[0:int(face_crop.shape[0] * 0.55), :]
+            eyes = self.eye_cascade.detectMultiScale(upper_crop, scaleFactor=1.1, minNeighbors=2, minSize=(10, 10))
+            if len(eyes) >= 2:
+                eyes = sorted(eyes, key=lambda e: e[0])
+                dx = (eyes[-1][0] + eyes[-1][2]//2) - (eyes[0][0] + eyes[0][2]//2)
+                dy = (eyes[-1][1] + eyes[-1][3]//2) - (eyes[0][1] + eyes[0][3]//2)
+                if abs(dx) > 5:
+                    angle = np.clip(float(np.degrees(np.arctan2(dy, dx))), -35.0, 35.0)
+                    if abs(angle) > 2.0:
+                        center = (face_crop.shape[1] // 2, face_crop.shape[0] // 2)
+                        rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
+                        face_crop = cv2.warpAffine(face_crop, rot_mat, (face_crop.shape[1], face_crop.shape[0]), borderMode=cv2.BORDER_REPLICATE)
+
         # Apply CLAHE illumination normalization
         if len(face_crop.shape) == 3:
             lab = cv2.cvtColor(face_crop, cv2.COLOR_BGR2LAB)

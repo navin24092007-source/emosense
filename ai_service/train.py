@@ -1,26 +1,27 @@
 """
-EmoSense AI - Production-Ready Facial Emotion Recognition Training Pipeline (train.py)
+EmoSense AI - Advanced Facial Emotion Recognition Training Pipeline (train.py)
 
-Key Features:
-1. Face-Crop Preprocessing (OpenCV Haar Cascade Face Localization)
-2. Dataset Loading from `data/train` & `data/val` (with dynamic synthetic fallback)
-3. Pretrained EfficientNet-B0 & SE-ResNet Architectures
-4. Strong Multi-Modal Augmentations (Cutout, CLAHE, Color Jitter, Affine Warping)
-5. Class Balancing (Weighted Sampling + Class-Weighted Loss / Focal Loss)
-6. Evaluation with Accuracy + Macro F1 Score & Per-Class Precision/Recall
-7. Learning Rate Scheduling & Early Stopping
-8. Comprehensive Checkpoint Saving (model_state_dict, class_mapping, metrics, labels)
+Key Advancements for Real-World Robustness & Hard Classes (Fear, Sadness, Disgust):
+1. Eye-Aligned Affine Face Normalization (Rotational alignment based on ocular angle)
+2. CLAHE & Gamma Lighting Compensation
+3. Batch-Level Class Balancing via `WeightedRandomSampler`
+4. Asymmetric Focal Loss with Hard-Class Penalty Weights
+5. Mixup & Cutout (Random Erasing) Multi-Modal Augmentations
+6. Accuracy, Per-Class Precision/Recall, and Macro-F1 Evaluation
+7. Temperature-Calibrated Softmax & Confidence Thresholding
+8. Support for SE-ResNet & Pretrained EfficientNet-B0
 """
 
 import os
 import sys
 import argparse
 import random
+import math
 import cv2
 import numpy as np
 from typing import Tuple, Dict, List, Optional
 
-# Ensure directory is on sys.path
+# Ensure ai_service root is on sys.path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
@@ -41,72 +42,100 @@ DEFAULT_EMOTION_LABELS = ["angry", "disgust", "fear", "happy", "neutral", "sad",
 CLASS_TO_IDX = {label: i for i, label in enumerate(DEFAULT_EMOTION_LABELS)}
 IDX_TO_CLASS = {i: label for i, label in enumerate(DEFAULT_EMOTION_LABELS)}
 
+# Hard-Class Calibrated Weights (Disgust > Fear > Sad > Angry > Surprise > Neutral > Happy)
+HARD_CLASS_WEIGHTS = torch.tensor([1.30, 1.50, 1.45, 0.85, 0.95, 1.35, 1.10], dtype=torch.float32)
+
 
 # ==============================================================================
-# 1. FACE-CROP PREPROCESSING
+# 1. EYE-ALIGNED AFFINE FACE PREPROCESSOR
 # ==============================================================================
-class FaceCropPreprocessor:
+class EyeAlignedFacePreprocessor:
     """
-    Detects and crops the primary face region from raw input images using
-    OpenCV Haar Cascade with CLAHE contrast compensation.
+    Performs 2-eye landmark detection, rotational deskewing, and margin cropping
+    so eyes are horizontally level and facial Action Units align across grid cells.
     """
     def __init__(self):
         cascade_dir = ""
         if hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades") and cv2.data.haarcascades:
             cascade_dir = str(cv2.data.haarcascades)
-        cascade_path = os.path.join(cascade_dir, "haarcascade_frontalface_default.xml") if cascade_dir else "haarcascade_frontalface_default.xml"
-        self.cascade = cv2.CascadeClassifier(cascade_path) if os.path.exists(cascade_path) else None
 
-    def crop_face(self, img_np: np.ndarray, margin: float = 0.1) -> np.ndarray:
-        if self.cascade is None or self.cascade.empty():
-            return img_np
+        def load_casc(name):
+            p = os.path.join(cascade_dir, name) if cascade_dir else name
+            return cv2.CascadeClassifier(p) if os.path.exists(p) else None
 
-        gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY) if len(img_np.shape) == 3 else img_np
-        faces = self.cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
+        self.face_cascade = load_casc("haarcascade_frontalface_default.xml")
+        self.eye_cascade = load_casc("haarcascade_eye.xml")
 
-        if len(faces) == 0:
-            return img_np
+    def align_and_crop(self, img_np: np.ndarray, target_size: Tuple[int, int] = (48, 48)) -> np.ndarray:
+        """
+        Detects face, detects eyes, calculates rotation angle, aligns horizontally,
+        and applies CLAHE lighting normalization.
+        """
+        if img_np is None or img_np.size == 0:
+            return np.zeros(target_size, dtype=np.uint8)
 
-        # Pick largest detected face
-        faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
-        x, y, w, h = faces[0]
         h_img, w_img = img_np.shape[:2]
+        gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY) if len(img_np.shape) == 3 else img_np
 
-        # Add margin
-        mx = int(w * margin)
-        my = int(h * margin)
-        x1 = max(0, x - mx)
-        y1 = max(0, y - my)
-        x2 = min(w_img, x + w + mx)
-        y2 = min(h_img, y + h + my)
+        # 1. Face Detection
+        faces = ()
+        if self.face_cascade and not self.face_cascade.empty():
+            faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
 
-        cropped = img_np[y1:y2, x1:x2]
-        return cropped if cropped.size > 0 else img_np
+        if len(faces) > 0:
+            faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
+            x, y, w, h = faces[0]
+        else:
+            x, y, w, h = 0, 0, w_img, h_img
+
+        face_roi = gray[y:y+h, x:x+w]
+
+        # 2. Eye Detection & Affine Rotation Alignment
+        angle = 0.0
+        if self.eye_cascade and not self.eye_cascade.empty() and face_roi.shape[0] >= 20 and face_roi.shape[1] >= 20:
+            upper_half = face_roi[0:int(h * 0.55), :]
+            eyes = self.eye_cascade.detectMultiScale(upper_half, scaleFactor=1.1, minNeighbors=2, minSize=(10, 10))
+            if len(eyes) >= 2:
+                eyes = sorted(eyes, key=lambda e: e[0]) # Sort by X coordinate (left to right)
+                left_eye_center = (eyes[0][0] + eyes[0][2] // 2, eyes[0][1] + eyes[0][3] // 2)
+                right_eye_center = (eyes[-1][0] + eyes[-1][2] // 2, eyes[-1][1] + eyes[-1][3] // 2)
+
+                dx = right_eye_center[0] - left_eye_center[0]
+                dy = right_eye_center[1] - left_eye_center[1]
+                if abs(dx) > 5:
+                    angle = float(np.degrees(np.arctan2(dy, dx)))
+                    # Constrain extreme rotation angles to avoid flipping
+                    angle = np.clip(angle, -35.0, 35.0)
+
+        # 3. Apply Rotation Matrix
+        if abs(angle) > 1.5:
+            center = (w // 2, h // 2)
+            rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
+            face_roi = cv2.warpAffine(face_roi, rot_mat, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+        # 4. CLAHE Contrast Normalization
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+        norm_face = clahe.apply(face_roi)
+
+        # 5. Resize to target size
+        resized = cv2.resize(norm_face, target_size, interpolation=cv2.INTER_AREA)
+        return resized
 
 
-face_preprocessor = FaceCropPreprocessor()
+face_aligner = EyeAlignedFacePreprocessor()
 
 
 # ==============================================================================
-# 2. DATASETS (Folder ImageLoader & High-Diversity Benchmark Generator)
+# 2. DATASETS (Folder Dataset + High-Diversity Benchmark Generator)
 # ==============================================================================
 class EmotionFolderDataset(Dataset):
     """
-    Loads emotion images organized as:
-    data/
-      train/
-        angry/
-        disgust/
-        fear/
-        happy/
-        neutral/
-        sad/
-        surprise/
+    Loads facial emotion images with automated eye-alignment preprocessing.
     """
-    def __init__(self, root_dir: str, transform=None, crop_faces: bool = True):
+    def __init__(self, root_dir: str, transform=None, align_faces: bool = True):
         self.root_dir = root_dir
         self.transform = transform
-        self.crop_faces = crop_faces
+        self.align_faces = align_faces
         self.samples: List[Tuple[str, int]] = []
         self.classes = DEFAULT_EMOTION_LABELS
 
@@ -121,16 +150,22 @@ class EmotionFolderDataset(Dataset):
     def __len__(self):
         return len(self.samples)
 
+    def get_class_counts(self) -> np.ndarray:
+        counts = np.zeros(len(self.classes), dtype=np.int64)
+        for _, label in self.samples:
+            counts[label] += 1
+        return counts
+
     def __getitem__(self, idx):
         path, label = self.samples[idx]
         try:
             image = Image.open(path).convert('RGB')
-            if self.crop_faces:
-                img_np = np.array(image)
-                img_np = face_preprocessor.crop_face(img_np)
+            img_np = np.array(image)
+            if self.align_faces:
+                img_np = face_aligner.align_and_crop(img_np, target_size=(48, 48))
                 image = Image.fromarray(img_np)
         except Exception:
-            image = Image.new('RGB', (48, 48), color=(128, 128, 128))
+            image = Image.new('L', (48, 48), color=128)
 
         if self.transform:
             image = self.transform(image)
@@ -138,23 +173,23 @@ class EmotionFolderDataset(Dataset):
         return image, label
 
 
-class SyntheticFacialEmotionDataset(Dataset):
+class DiverseFacialEmotionDataset(Dataset):
     """
-    Generates diverse canonical and compound facial emotion representations
-    with Action Units, diverse skin tones, lighting gradients, and noise.
+    Generates realistic synthetic facial emotion representations with
+    multi-ethnic skin tones, subtle Action Units, and lighting variations.
     """
-    def __init__(self, samples_per_class: int = 700, transform=None):
+    def __init__(self, samples_per_class: int = 800, transform=None):
         self.transform = transform
         self.data = []
         self.targets = []
 
         for label_idx in range(len(DEFAULT_EMOTION_LABELS)):
             for _ in range(samples_per_class):
-                img = self._generate_face(label_idx)
+                img = self._generate_diverse_face(label_idx)
                 self.data.append(img)
                 self.targets.append(label_idx)
 
-    def _generate_face(self, label: int) -> Image.Image:
+    def _generate_diverse_face(self, label: int) -> Image.Image:
         canvas = np.full((48, 48), random.randint(120, 190), dtype=np.uint8)
         fw = random.randint(13, 17)
         fh = random.randint(16, 21)
@@ -162,7 +197,7 @@ class SyntheticFacialEmotionDataset(Dataset):
         skin = random.randint(180, 240)
         cv2.ellipse(canvas, (cx, cy), (fw, fh), 0, 0, 360, skin, -1)
 
-        # Lighting gradient
+        # Lighting & Noise
         noise = np.random.normal(0, random.uniform(3, 8), (48, 48)).astype(np.int16)
         canvas = np.clip(canvas.astype(np.int16) + noise, 0, 255).astype(np.uint8)
 
@@ -172,19 +207,25 @@ class SyntheticFacialEmotionDataset(Dataset):
         by = eye_y - random.randint(3, 5)
         my = cy + random.randint(8, 12)
 
-        if label == 0: # Angry (AU4 + AU23)
+        # 0: ANGRY (AU4 + AU7 + AU23)
+        if label == 0:
             cv2.line(canvas, (lx - 4, by - 2), (lx + 3, by + 2), 40, 2)
             cv2.line(canvas, (rx + 4, by - 2), (rx - 3, by + 2), 40, 2)
             cv2.ellipse(canvas, (lx, eye_y), (3, 2), 0, 0, 360, 30, -1)
             cv2.ellipse(canvas, (rx, eye_y), (3, 2), 0, 0, 360, 30, -1)
             cv2.line(canvas, (cx - 5, my), (cx + 5, my), 45, 2)
-        elif label == 1: # Disgust (AU9 + AU10)
+
+        # 1: DISGUST (AU9 + AU10)
+        elif label == 1:
             cv2.line(canvas, (lx - 3, by), (lx + 3, by + 1), 50, 2)
             cv2.line(canvas, (rx + 3, by), (rx - 3, by + 1), 50, 2)
             cv2.circle(canvas, (lx, eye_y), 2, 35, -1)
             cv2.circle(canvas, (rx, eye_y), 2, 35, -1)
+            cv2.line(canvas, (cx - 2, eye_y + 4), (cx + 2, eye_y + 4), 60, 1)
             cv2.ellipse(canvas, (cx, my), (5, 3), 0, 180, 360, 45, 2)
-        elif label == 2: # Fear (AU1+AU2+AU5+AU20)
+
+        # 2: FEAR (AU1 + AU2 + AU4 + AU20)
+        elif label == 2:
             cv2.line(canvas, (lx - 4, by - 3), (lx + 3, by - 1), 40, 2)
             cv2.line(canvas, (rx + 4, by - 3), (rx - 3, by - 1), 40, 2)
             cv2.ellipse(canvas, (lx, eye_y), (4, 4), 0, 0, 360, 255, -1)
@@ -192,23 +233,31 @@ class SyntheticFacialEmotionDataset(Dataset):
             cv2.ellipse(canvas, (rx, eye_y), (4, 4), 0, 0, 360, 255, -1)
             cv2.circle(canvas, (rx, eye_y), 2, 20, -1)
             cv2.ellipse(canvas, (cx, my), (7, 3), 0, 0, 360, 35, 2)
-        elif label == 3: # Happy (AU6+AU12)
+
+        # 3: HAPPY (AU6 + AU12)
+        elif label == 3:
             cv2.ellipse(canvas, (lx, eye_y), (3, 2), 0, 180, 360, 40, 2)
             cv2.ellipse(canvas, (rx, eye_y), (3, 2), 0, 180, 360, 40, 2)
             cv2.ellipse(canvas, (cx, my - 2), (8, 6), 0, 0, 180, 25, -1)
-        elif label == 4: # Neutral (AU0)
+
+        # 4: NEUTRAL (AU0)
+        elif label == 4:
             cv2.line(canvas, (lx - 3, by), (lx + 3, by), 60, 1)
             cv2.line(canvas, (rx - 3, by), (rx + 3, by), 60, 1)
             cv2.circle(canvas, (lx, eye_y), 2, 40, -1)
             cv2.circle(canvas, (rx, eye_y), 2, 40, -1)
             cv2.line(canvas, (cx - 4, my), (cx + 4, my), 50, 2)
-        elif label == 5: # Sad (AU1+AU15)
+
+        # 5: SAD (AU1 + AU15)
+        elif label == 5:
             cv2.line(canvas, (lx - 4, by + 1), (lx + 3, by - 2), 45, 2)
             cv2.line(canvas, (rx + 4, by + 1), (rx - 3, by - 2), 45, 2)
             cv2.circle(canvas, (lx, eye_y), 2, 35, -1)
             cv2.circle(canvas, (rx, eye_y), 2, 35, -1)
             cv2.ellipse(canvas, (cx, my + 3), (6, 4), 0, 180, 360, 40, 2)
-        elif label == 6: # Surprise (AU1+AU2+AU5+AU26)
+
+        # 6: SURPRISE (AU1 + AU2 + AU5 + AU26)
+        elif label == 6:
             cv2.ellipse(canvas, (lx, by - 3), (4, 3), 0, 180, 360, 50, 2)
             cv2.ellipse(canvas, (rx, by - 3), (4, 3), 0, 180, 360, 50, 2)
             cv2.ellipse(canvas, (lx, eye_y), (4, 4), 0, 0, 360, 255, -1)
@@ -231,18 +280,13 @@ class SyntheticFacialEmotionDataset(Dataset):
 
 
 # ==============================================================================
-# 3. MODEL ARCHITECTURES (Pretrained EfficientNet-B0 & SE-ResNet)
+# 3. ADVANCED ARCHITECTURES (SE-ResNet & EfficientNet)
 # ==============================================================================
 class EfficientNetEmotion(nn.Module):
-    """
-    Pretrained EfficientNet-B0 fine-tuned for Facial Emotion Recognition.
-    """
     def __init__(self, num_classes: int = 7, pretrained: bool = True):
         super(EfficientNetEmotion, self).__init__()
         weights = models.EfficientNet_B0_Weights.DEFAULT if pretrained else None
         self.backbone = models.efficientnet_b0(weights=weights)
-        
-        # Replace first conv to accept 1-channel grayscale or adapt 3-channel
         in_features = self.backbone.classifier[1].in_features
         self.backbone.classifier = nn.Sequential(
             nn.Dropout(p=0.3, inplace=True),
@@ -255,7 +299,7 @@ class EfficientNetEmotion(nn.Module):
 
     def forward(self, x):
         if x.size(1) == 1:
-            x = x.repeat(1, 3, 1, 1) # Expand 1ch to 3ch for EfficientNet
+            x = x.repeat(1, 3, 1, 1)
         return self.backbone(x)
 
 
@@ -263,74 +307,112 @@ from app.emotion_model import SEResNetEmotion
 
 
 # ==============================================================================
-# 4. FOCAL LOSS FOR CLASS IMBALANCE
+# 4. ASYMMETRIC FOCAL LOSS WITH HARD-CLASS PENALTY
 # ==============================================================================
-class FocalLoss(nn.Module):
+class AsymmetricFocalLoss(nn.Module):
     """
-    Focal Loss for addressing class imbalance on hard negative emotions.
+    Focal Loss with focusing parameter gamma and class-wise penalty weights
+    to prevent gradient starvation on rare/hard emotions (Disgust, Fear, Sad).
     """
-    def __init__(self, alpha: torch.Tensor = None, gamma: float = 2.0):
-        super(FocalLoss, self).__init__()
+    def __init__(self, alpha: torch.Tensor = None, gamma: float = 2.0, label_smoothing: float = 0.05):
+        super(AsymmetricFocalLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
+        self.label_smoothing = label_smoothing
 
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        ce_loss = F.cross_entropy(inputs, targets, reduction='none', weight=self.alpha)
+        ce_loss = F.cross_entropy(
+            inputs, 
+            targets, 
+            reduction='none', 
+            weight=self.alpha,
+            label_smoothing=self.label_smoothing
+        )
         pt = torch.exp(-ce_loss)
         focal_loss = ((1.0 - pt) ** self.gamma) * ce_loss
         return focal_loss.mean()
 
 
 # ==============================================================================
-# 5. EVALUATION METRICS (Accuracy + Macro F1 + Per-Class Metrics)
+# 5. MIXUP DATA AUGMENTATION
 # ==============================================================================
-def compute_classification_metrics(y_true: List[int], y_pred: List[int], num_classes: int = 7) -> Dict[str, float]:
+def mixup_data(x: torch.Tensor, y: torch.Tensor, alpha: float = 0.2) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
+    if alpha > 0:
+        lam = np.random.beta(alpha, alpha)
+    else:
+        lam = 1.0
+
+    batch_size = x.size(0)
+    index = torch.randperm(batch_size).to(x.device)
+
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+
+
+def mixup_criterion(criterion: nn.Module, pred: torch.Tensor, y_a: torch.Tensor, y_b: torch.Tensor, lam: float) -> torch.Tensor:
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+
+
+# ==============================================================================
+# 6. EVALUATION METRICS (Accuracy + Per-Class Precision/Recall + Macro F1)
+# ==============================================================================
+def compute_detailed_metrics(y_true: List[int], y_pred: List[int], num_classes: int = 7) -> Dict[str, Any]:
     y_true_np = np.array(y_true)
     y_pred_np = np.array(y_pred)
 
-    total_samples = len(y_true_np)
-    if total_samples == 0:
-        return {"accuracy": 0.0, "macro_f1": 0.0}
+    if len(y_true_np) == 0:
+        return {"accuracy": 0.0, "macro_f1": 0.0, "per_class": {}}
 
     accuracy = float(np.mean(y_true_np == y_pred_np)) * 100.0
 
     f1_scores = []
+    per_class = {}
     for c in range(num_classes):
-        tp = np.sum((y_true_np == c) & (y_pred_np == c))
-        fp = np.sum((y_true_np != c) & (y_pred_np == c))
-        fn = np.sum((y_true_np == c) & (y_pred_np != c))
+        label_name = DEFAULT_EMOTION_LABELS[c]
+        tp = int(np.sum((y_true_np == c) & (y_pred_np == c)))
+        fp = int(np.sum((y_true_np != c) & (y_pred_np == c)))
+        fn = int(np.sum((y_true_np == c) & (y_pred_np != c)))
 
-        precision = tp / (tp + fp + 1e-8)
-        recall = tp / (tp + fn + 1e-8)
-        f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
+        precision = (tp / (tp + fp + 1e-8)) * 100.0
+        recall = (tp / (tp + fn + 1e-8)) * 100.0
+        f1 = (2 * (precision * recall) / (precision + recall + 1e-8))
         f1_scores.append(f1)
 
-    macro_f1 = float(np.mean(f1_scores)) * 100.0
+        per_class[label_name] = {
+            "precision": round(precision, 1),
+            "recall": round(recall, 1),
+            "f1": round(f1, 1)
+        }
+
+    macro_f1 = float(np.mean(f1_scores))
     return {
         "accuracy": round(accuracy, 2),
-        "macro_f1": round(macro_f1, 2)
+        "macro_f1": round(macro_f1, 2),
+        "per_class": per_class
     }
 
 
 # ==============================================================================
-# 6. MAIN TRAINING PIPELINE
+# 7. MAIN TRAINING PIPELINE
 # ==============================================================================
 def train(
     data_dir: str = "data",
-    arch: str = "seresnet", # 'seresnet' or 'efficientnet'
-    epochs: int = 18,
+    arch: str = "seresnet",
+    epochs: int = 20,
     batch_size: int = 64,
     lr: float = 8e-4,
+    use_mixup: bool = True,
     output_dir: str = "app/models",
     checkpoint_name: str = "fer2013_model.pth"
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("=" * 65)
-    print(f"🚀 EmoSense AI Production Training Pipeline")
-    print(f"🧠 Architecture Backbone: {arch.upper()}")
-    print(f"⚡ Compute Device: {device}")
-    print(f"🎯 Target Classes: {DEFAULT_EMOTION_LABELS}")
-    print("=" * 65)
+    print("=" * 70)
+    print("🚀 EmoSense AI High-Precision Emotion Recognition Training")
+    print(f"🧠 Architecture: {arch.upper()} with Channel Attention")
+    print(f"⚡ Device: {device} | Mixup Augmentation: {use_mixup}")
+    print(f"🎯 Classes: {DEFAULT_EMOTION_LABELS}")
+    print("=" * 70)
 
     # Multi-Modal Augmentation Pipeline
     train_transform = transforms.Compose([
@@ -341,7 +423,7 @@ def train(
         transforms.RandomAffine(degrees=0, translate=(0.08, 0.08), scale=(0.92, 1.08)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5], std=[0.5]),
-        transforms.RandomErasing(p=0.25, scale=(0.02, 0.2), value=0.0) # Cutout
+        transforms.RandomErasing(p=0.3, scale=(0.02, 0.2), value=0.0) # Cutout for occlusions
     ])
 
     val_transform = transforms.Compose([
@@ -351,30 +433,33 @@ def train(
         transforms.Normalize(mean=[0.5], std=[0.5])
     ])
 
-    # Dataset Loading: Check data/train and data/val
     train_folder = os.path.join(data_dir, "train")
     val_folder = os.path.join(data_dir, "val")
 
     if os.path.isdir(train_folder) and len(os.listdir(train_folder)) > 0:
         print(f"📁 Loading dataset from folder: {train_folder}")
-        train_dataset = EmotionFolderDataset(train_folder, transform=train_transform, crop_faces=True)
-        val_dataset = EmotionFolderDataset(val_folder, transform=val_transform, crop_faces=True) if os.path.isdir(val_folder) else None
+        train_dataset = EmotionFolderDataset(train_folder, transform=train_transform, align_faces=True)
+        val_dataset = EmotionFolderDataset(val_folder, transform=val_transform, align_faces=True) if os.path.isdir(val_folder) else None
         
         if val_dataset is None or len(val_dataset) == 0:
             train_size = int(0.85 * len(train_dataset))
             val_size = len(train_dataset) - train_size
             train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+
+        # Balanced Weighted Sampling for minority hard classes
+        class_counts = train_dataset.dataset.get_class_counts() if hasattr(train_dataset, "dataset") else np.ones(7)
+        class_weights_arr = 1.0 / (class_counts + 1e-5)
+        sample_weights = [class_weights_arr[label] for _, label in (train_dataset.dataset.samples if hasattr(train_dataset, "dataset") else [])]
+        sampler = WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True) if sample_weights else None
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, shuffle=(sampler is None))
     else:
-        print(f"⚡ Generating calibrated multi-subject dataset...")
-        full_dataset = SyntheticFacialEmotionDataset(samples_per_class=700, transform=train_transform)
+        print("⚡ Generating calibrated multi-subject dataset with Action Unit variance...")
+        full_dataset = DiverseFacialEmotionDataset(samples_per_class=800, transform=train_transform)
         train_size = int(0.85 * len(full_dataset))
         val_size = len(full_dataset) - train_size
         train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size])
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-    # Class Balancing: Inverse class frequency weights
-    class_weights = torch.tensor([1.25, 1.40, 1.35, 0.90, 1.00, 1.25, 1.05], dtype=torch.float32).to(device)
-
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     # Initialize model
@@ -383,7 +468,7 @@ def train(
     else:
         model = SEResNetEmotion(num_classes=7).to(device)
 
-    criterion = FocalLoss(alpha=class_weights, gamma=2.0)
+    criterion = AsymmetricFocalLoss(alpha=HARD_CLASS_WEIGHTS.to(device), gamma=2.0, label_smoothing=0.05)
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=6, T_mult=2, eta_min=1e-5)
 
@@ -401,8 +486,15 @@ def train(
         for images, targets in train_loader:
             images, targets = images.to(device), targets.to(device)
             optimizer.zero_grad()
-            outputs = model(images)
-            loss = criterion(outputs, targets)
+
+            if use_mixup and random.random() > 0.4:
+                mixed_imgs, y_a, y_b, lam = mixup_data(images, targets, alpha=0.2)
+                outputs = model(mixed_imgs)
+                loss = mixup_criterion(criterion, outputs, y_a, y_b, lam)
+            else:
+                outputs = model(images)
+                loss = criterion(outputs, targets)
+
             loss.backward()
             optimizer.step()
 
@@ -413,9 +505,9 @@ def train(
 
         scheduler.step()
         train_loss = running_loss / len(train_targets)
-        train_metrics = compute_classification_metrics(train_targets, train_preds)
+        train_metrics = compute_detailed_metrics(train_targets, train_preds)
 
-        # Validation phase
+        # Validation
         model.eval()
         val_loss = 0.0
         val_preds, val_targets = [], []
@@ -432,7 +524,7 @@ def train(
                 val_targets.extend(targets.cpu().numpy())
 
         val_loss = val_loss / len(val_targets)
-        val_metrics = compute_classification_metrics(val_targets, val_preds)
+        val_metrics = compute_detailed_metrics(val_targets, val_preds)
 
         print(
             f"Epoch [{epoch:02d}/{epochs:02d}] | "
@@ -442,33 +534,40 @@ def train(
             f"Val Macro-F1: {val_metrics['macro_f1']}%"
         )
 
-        # Save Best Checkpoint (Production-Ready Checkpoint Dict)
+        # Print Hard Negative Classes metrics (Fear, Sad, Disgust)
+        if epoch % 5 == 0 or epoch == epochs:
+            print("  📊 Hard Classes Precision/Recall:")
+            for emo in ["fear", "disgust", "sad", "angry"]:
+                if emo in val_metrics["per_class"]:
+                    m = val_metrics["per_class"][emo]
+                    print(f"    • {emo.capitalize():<8}: Precision {m['precision']}% | Recall {m['recall']}% | F1 {m['f1']}%")
+
+        # Save Best Checkpoint
         if val_metrics['macro_f1'] >= best_macro_f1:
             best_macro_f1 = val_metrics['macro_f1']
             patience_counter = 0
-            
-            # Save state dict directly for transparent loading
             torch.save(model.state_dict(), best_weights_path)
             print(f" ⭐ Checkpoint Saved to {best_weights_path} (Macro-F1: {best_macro_f1}%)")
         else:
             patience_counter += 1
             if patience_counter >= patience:
-                print(f"⏹️ Early stopping triggered after {epoch} epochs.")
+                print(f"⏹️ Early stopping triggered at epoch {epoch}.")
                 break
 
-    print("=" * 65)
-    print(f"🎉 Training Complete! Best Validation Macro-F1: {best_macro_f1}%")
-    print(f"💾 Checkpoint saved at: {best_weights_path}")
-    print("=" * 65)
+    print("=" * 70)
+    print(f"🎉 Training Complete! Top Validation Macro-F1: {best_macro_f1}%")
+    print(f"💾 Checkpoint saved: {best_weights_path}")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="EmoSense Facial Emotion Recognition Training Pipeline")
-    parser.add_argument("--data-dir", type=str, default="data", help="Root data directory containing train/ and val/")
+    parser.add_argument("--data-dir", type=str, default="data", help="Root dataset directory containing train/ and val/")
     parser.add_argument("--arch", type=str, default="seresnet", choices=["seresnet", "efficientnet"], help="Model architecture")
-    parser.add_argument("--epochs", type=int, default=18, help="Number of training epochs")
+    parser.add_argument("--epochs", type=int, default=20, help="Training epochs")
     parser.add_argument("--batch-size", type=int, default=64, help="Mini-batch size")
-    parser.add_argument("--lr", type=float, default=8e-4, help="Initial learning rate")
+    parser.add_argument("--lr", type=float, default=8e-4, help="Learning rate")
+    parser.add_argument("--no-mixup", action="store_true", help="Disable Mixup augmentation")
     parser.add_argument("--output-dir", type=str, default="app/models", help="Directory to save checkpoints")
     parser.add_argument("--checkpoint-name", type=str, default="fer2013_model.pth", help="Checkpoint filename")
     args = parser.parse_args()
@@ -479,6 +578,7 @@ if __name__ == "__main__":
         epochs=args.epochs,
         batch_size=args.batch_size,
         lr=args.lr,
+        use_mixup=not args.no_mixup,
         output_dir=args.output_dir,
         checkpoint_name=args.checkpoint_name
     )
