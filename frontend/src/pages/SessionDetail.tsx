@@ -9,7 +9,7 @@ import { EmotionExplainerModal } from '../components/EmotionExplainerModal';
 import { exportSessionDetailToCSV, printSessionReport } from '../utils/reportGenerator';
 import { soundManager } from '../utils/audioFeedback';
 import { emotionColors } from '../components/EmotionOverlay';
-import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts';
 import { 
   ArrowLeft, 
   Sparkles, 
@@ -115,9 +115,16 @@ export const SessionDetail: React.FC = () => {
     );
   }
 
-  const pieData = Object.entries(analytics.distribution)
-    .filter(([_, val]) => val > 0)
-    .map(([emo, val]) => ({ name: emo, value: val }));
+  // Map all 7 emotions for the bar chart
+  const barData = Object.entries(analytics.distribution).map(([emo, val]) => {
+    const pct = analytics.totalLogs > 0 ? Math.round((val / analytics.totalLogs) * 100) : 0;
+    return {
+      name: emo,
+      count: val,
+      percentage: pct,
+      value: val
+    };
+  });
 
   const domConfig = emotionColors[analytics.dominantEmotion] || emotionColors.neutral;
 
@@ -255,34 +262,34 @@ export const SessionDetail: React.FC = () => {
         </div>
       </div>
 
-      {/* Timeline Chart + Pie Distribution */}
+      {/* Timeline Chart + Bar Distribution */}
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <LiveChart logs={logs} height={300} />
         </div>
 
         <div className="glass-panel p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
-          <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-            Emotion Distribution Breakdown
+          <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center justify-between">
+            <span>Emotion Distribution (Bar Graph)</span>
+            <span className="text-[10px] text-slate-500 font-mono">{analytics.totalLogs} total frames</span>
           </h4>
 
           <div className="w-full h-52">
-            {pieData.length > 0 ? (
+            {analytics.totalLogs > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={45}
-                    outerRadius={75}
-                    paddingAngle={4}
-                    dataKey="value"
-                  >
-                    {pieData.map((entry) => (
-                      <Cell key={entry.name} fill={EMOTION_PIE_COLORS[entry.name] || '#64748b'} />
-                    ))}
-                  </Pie>
+                <BarChart data={barData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis 
+                    dataKey="name" 
+                    tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }}
+                    axisLine={{ stroke: '#334155' }}
+                    tickLine={false}
+                  />
+                  <YAxis 
+                    tick={{ fill: '#64748b', fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: '#0f172a',
@@ -291,21 +298,34 @@ export const SessionDetail: React.FC = () => {
                       fontSize: '12px',
                       color: '#f8fafc'
                     }}
+                    cursor={{ fill: '#1e293b50' }}
+                    formatter={(value: any, name: any, item: any) => [
+                      `${value} frames (${item.payload.percentage}%)`,
+                      'Frequency'
+                    ]}
                   />
-                </PieChart>
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                    {barData.map((entry) => (
+                      <Cell key={entry.name} fill={EMOTION_PIE_COLORS[entry.name] || '#64748b'} />
+                    ))}
+                  </Bar>
+                </BarChart>
               </ResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center text-slate-500 text-xs italic">
-                No emotion data for pie chart.
+                No emotion logs recorded for this session.
               </div>
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-2 text-[11px] pt-2 border-t border-slate-800">
-            {pieData.map((item) => (
-              <div key={item.name} className="flex items-center gap-1.5 capitalize text-slate-300">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: EMOTION_PIE_COLORS[item.name] }} />
-                <span>{item.name}: {item.value}</span>
+          <div className="grid grid-cols-2 gap-2 text-[11px] pt-3 border-t border-slate-800">
+            {barData.filter(item => item.count > 0).map((item) => (
+              <div key={item.name} className="flex items-center justify-between text-slate-300">
+                <div className="flex items-center gap-1.5 capitalize">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: EMOTION_PIE_COLORS[item.name] }} />
+                  <span>{item.name}</span>
+                </div>
+                <span className="font-mono text-slate-400">{item.count} ({item.percentage}%)</span>
               </div>
             ))}
           </div>

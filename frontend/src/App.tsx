@@ -70,6 +70,7 @@ export const App: React.FC = () => {
             <Route path="/upload" element={<MainLayout><UploadImage /></MainLayout>} />
             <Route path="/dashboard" element={<MainLayout><Dashboard /></MainLayout>} />
             <Route path="/session/:id" element={<MainLayout><SessionDetail /></MainLayout>} />
+            <Route path="/sessions/:id" element={<MainLayout><SessionDetail /></MainLayout>} />
             
             <Route path="/domain/education" element={<MainLayout><DomainEducation /></MainLayout>} />
             <Route path="/domain/healthcare" element={<MainLayout><DomainHealthcare /></MainLayout>} />

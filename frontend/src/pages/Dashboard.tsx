@@ -651,7 +651,7 @@ export const Dashboard: React.FC = () => {
                     </td>
                     <td className="py-3 px-3 text-right">
                       <Link
-                        to={`/sessions/${sess._id}`}
+                        to={`/session/${sess._id}`}
                         className="text-indigo-400 hover:text-indigo-300 font-semibold inline-flex items-center gap-1"
                       >
                         <span>Inspect</span>
