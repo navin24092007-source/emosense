@@ -1,0 +1,419 @@
+import React, { useEffect, useRef, useState } from 'react';
+import api from '../services/api';
+import { getSocket } from '../services/socket';
+import { EmotionPrediction, EmotionLog, SessionContext, EmotionExplanation } from '../types';
+import { EmotionOverlay } from '../components/EmotionOverlay';
+import { LiveChart } from '../components/LiveChart';
+import { ValenceArousalChart } from '../components/ValenceArousalChart';
+import { EmotionExplainerModal } from '../components/EmotionExplainerModal';
+import { soundManager } from '../utils/audioFeedback';
+import { 
+  Video, 
+  Square, 
+  Play, 
+  GraduationCap, 
+  Stethoscope, 
+  Headphones, 
+  AlertCircle, 
+  RefreshCw,
+  Sparkles,
+  Zap,
+  Activity,
+  Compass
+} from 'lucide-react';
+
+export const LiveEmotion: React.FC = () => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [context, setContext] = useState<SessionContext>('education');
+  const [isStreaming, setIsStreaming] = useState<boolean>(false);
+  const [prediction, setPrediction] = useState<EmotionPrediction | null>(null);
+  const [logs, setLogs] = useState<EmotionLog[]>([]);
+  const [webcamError, setWebcamError] = useState<string | null>(null);
+
+  // Explainer modal state
+  const [explainerOpen, setExplainerOpen] = useState<boolean>(false);
+  const [explainerData, setExplainerData] = useState<EmotionExplanation | null>(null);
+  const [explainerLoading, setExplainerLoading] = useState<boolean>(false);
+
+  const intervalRef = useRef<any>(null);
+  const lastEmotionRef = useRef<string | null>(null);
+
+  // Initialize Socket.io listener
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket.connected) socket.connect();
+
+    socket.on('emotionUpdate', (data: any) => {
+      setPrediction({
+        emotion: data.emotion,
+        confidence: data.confidence,
+        all_probs: data.all_probs,
+        bbox: data.bbox,
+        timestamp: data.timestamp
+      });
+
+      // Sound feedback on state transition
+      if (lastEmotionRef.current && lastEmotionRef.current !== data.emotion) {
+        soundManager.playBlip(540, 40);
+      }
+      lastEmotionRef.current = data.emotion;
+
+      const newLog: EmotionLog = {
+        sessionId: data.sessionId,
+        timestamp: data.timestamp || new Date().toISOString(),
+        emotion: data.emotion,
+        confidence: data.confidence,
+        all_probs: data.all_probs
+      };
+
+      setLogs((prev) => [...prev, newLog]);
+    });
+
+    socket.on('emotionError', (err: any) => {
+      console.warn('Socket emotion error:', err);
+    });
+
+    return () => {
+      socket.off('emotionUpdate');
+      socket.off('emotionError');
+    };
+  }, []);
+
+  // Request Webcam Stream
+  const startWebcam = async () => {
+    try {
+      setWebcamError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+        audio: false
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (err: any) {
+      console.error('Webcam error:', err);
+      setWebcamError(`Unable to access webcam: ${err.message || err.name || 'Unknown error'}. Please check permissions.`);
+    }
+  };
+
+  const stopWebcam = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  // Start Session & Frame Broadcast
+  const handleStartSession = async () => {
+    try {
+      soundManager.playSuccessChime();
+      await startWebcam();
+      const res = await api.post('/sessions', { context });
+      const session = res.data;
+      setActiveSessionId(session._id);
+      setIsStreaming(true);
+      setLogs([]);
+
+      const socket = getSocket();
+      socket.emit('startSession', { sessionId: session._id });
+
+      // Frame capture loop (every 300ms)
+      intervalRef.current = setInterval(() => {
+        captureAndSendFrame(session._id);
+      }, 300);
+    } catch (err: any) {
+      alert('Failed to start live session: ' + err.message);
+    }
+  };
+
+  const handleStopSession = async () => {
+    soundManager.playBlip(440, 70);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+    stopWebcam();
+    setIsStreaming(false);
+
+    if (activeSessionId) {
+      try {
+        await api.post(`/sessions/${activeSessionId}/end`);
+        const socket = getSocket();
+        socket.emit('stopSession', { sessionId: activeSessionId });
+      } catch (err) {
+        console.error('Failed to end session:', err);
+      }
+    }
+  };
+
+  const captureAndSendFrame = (sessionId: string) => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+
+    if (!canvasRef.current) {
+      canvasRef.current = document.createElement('canvas');
+    }
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const base64Frame = canvas.toDataURL('image/jpeg', 0.6);
+
+    const socket = getSocket();
+    socket.emit('frame', { sessionId, frame: base64Frame });
+  };
+
+  const handleExplainLive = async () => {
+    soundManager.playBlip(700, 60);
+    setExplainerOpen(true);
+    setExplainerLoading(true);
+
+    try {
+      const currentEmo = prediction?.emotion || 'neutral';
+      const conf = prediction?.confidence || 0.85;
+      const res = await api.post('/emotions/explain', {
+        emotion: currentEmo,
+        confidence: conf,
+        all_probs: prediction?.all_probs,
+        context,
+        totalLogs: logs.length
+      });
+      setExplainerData(res.data);
+    } catch (err) {
+      console.error('Explanation request failed:', err);
+    } finally {
+      setExplainerLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      stopWebcam();
+    };
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      {/* Header Banner */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-black text-white flex items-center gap-2.5">
+            <div className="p-2 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30 shadow-md">
+              <Video className="w-6 h-6" />
+            </div>
+            Live Emotion Recognition
+          </h1>
+          <p className="text-xs text-slate-400">
+            Real-time facial expression telemetry via Socket.io frame streaming & OpenCV CNN inference
+          </p>
+        </div>
+
+        {/* Controls & Context Picker */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex bg-slate-900 border border-slate-800 rounded-2xl p-1">
+            <button
+              onClick={() => setContext('education')}
+              disabled={isStreaming}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                context === 'education' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-inner' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              Education
+            </button>
+            <button
+              onClick={() => setContext('healthcare')}
+              disabled={isStreaming}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                context === 'healthcare' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-inner' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Stethoscope className="w-3.5 h-3.5" />
+              Healthcare
+            </button>
+            <button
+              onClick={() => setContext('customer')}
+              disabled={isStreaming}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                context === 'customer' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-inner' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Headphones className="w-3.5 h-3.5" />
+              Customer
+            </button>
+          </div>
+
+          {!isStreaming ? (
+            <button
+              onClick={handleStartSession}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 font-bold text-xs text-white shadow-xl shadow-emerald-600/30 hover:opacity-95 hover:scale-102 transition"
+            >
+              <Play className="w-4 h-4 fill-white" />
+              Start Live Session
+            </button>
+          ) : (
+            <button
+              onClick={handleStopSession}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 font-bold text-xs text-white shadow-xl shadow-rose-600/30 hover:opacity-95 hover:scale-102 transition"
+            >
+              <Square className="w-4 h-4 fill-white" />
+              Stop Session
+            </button>
+          )}
+        </div>
+      </div>
+
+      {webcamError && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center gap-3 text-rose-300 text-xs">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          <span>{webcamError}</span>
+        </div>
+      )}
+
+      {/* Main Video & Probability Gauges Section */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        {/* Webcam Viewport with Overlay HUD */}
+        <div className="lg:col-span-2 glass-panel p-4 rounded-3xl border border-slate-800 relative overflow-hidden flex flex-col items-center justify-center min-h-[440px]">
+          <div className="relative w-full max-w-2xl aspect-video rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-2xl flex items-center justify-center">
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              className="w-full h-full object-cover transform -scale-x-100"
+            />
+            {isStreaming && (
+              <EmotionOverlay
+                prediction={prediction}
+                videoWidth={videoRef.current?.videoWidth || 640}
+                videoHeight={videoRef.current?.videoHeight || 480}
+              />
+            )}
+            {!isStreaming && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm text-center p-6 space-y-3">
+                <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 text-slate-500 shadow-inner">
+                  <Video className="w-10 h-10" />
+                </div>
+                <div className="text-sm font-bold text-slate-200">Live Camera Feed Inactive</div>
+                <p className="text-xs text-slate-500 max-w-sm">
+                  Click "Start Live Session" above to activate your browser webcam and begin streaming frame telemetry.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Quick Explainer & Status Bar underneath Video */}
+          <div className="w-full max-w-2xl mt-4 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <span className={`w-2.5 h-2.5 rounded-full ${isStreaming ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
+              <span>{isStreaming ? `Tracking session: ${activeSessionId?.slice(-6)}` : 'Camera ready'}</span>
+            </div>
+
+            <button
+              onClick={handleExplainLive}
+              disabled={!prediction && !isStreaming}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs shadow-md shadow-indigo-600/30 hover:opacity-90 transition disabled:opacity-40"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>Explain Emotion with AI</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 7-Class Softmax Probability Breakdown Card */}
+        <div className="glass-panel p-5 rounded-3xl border border-slate-800 flex flex-col justify-between space-y-4">
+          <div>
+            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center justify-between">
+              <span>7-Class Softmax Probabilities</span>
+              {isStreaming && (
+                <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse-glow" />
+                  Live ~300ms
+                </span>
+              )}
+            </h3>
+
+            {prediction && prediction.all_probs ? (
+              <div className="space-y-2.5">
+                {Object.entries(prediction.all_probs).map(([emo, prob]) => {
+                  const pct = Math.round(prob * 100);
+                  const isDominant = prediction.emotion === emo;
+                  return (
+                    <div key={emo} className="space-y-1">
+                      <div className="flex justify-between text-xs font-semibold capitalize text-slate-300">
+                        <span className={isDominant ? 'text-indigo-400 font-bold' : ''}>{emo}</span>
+                        <span className={isDominant ? 'text-white font-bold' : 'text-slate-400'}>{pct}%</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-300 ${
+                            isDominant 
+                              ? 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500' 
+                              : 'bg-slate-700'
+                          }`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="h-64 flex flex-col items-center justify-center text-slate-500 text-xs italic text-center p-4">
+                <RefreshCw className="w-6 h-6 mb-2 animate-spin text-slate-600" />
+                Awaiting active facial telemetry stream...
+              </div>
+            )}
+          </div>
+
+          <div className="p-3.5 bg-slate-900/80 rounded-2xl border border-slate-800 text-[11px] text-slate-400 space-y-1">
+            <div className="flex justify-between">
+              <span>Context: <span className="text-indigo-300 font-bold capitalize">{context}</span></span>
+              <span>Logged Frames: <span className="text-white font-bold">{logs.length}</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Real-time Charts Row: Live Timeline Chart + 2D Valence-Arousal Plane */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          <LiveChart logs={logs} height={260} />
+        </div>
+
+        <div className="glass-panel p-5 rounded-3xl border border-slate-800 flex flex-col justify-between">
+          <div className="mb-2">
+            <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Compass className="w-4 h-4 text-purple-400" />
+              Live Valence-Arousal Position
+            </h4>
+            <p className="text-[10px] text-slate-500">
+              Russell's Circumplex quadrant coordinates updated in real time.
+            </p>
+          </div>
+
+          <ValenceArousalChart 
+            currentEmotion={prediction?.emotion || 'neutral'} 
+            height={200} 
+          />
+        </div>
+      </div>
+
+      {/* Emotion Explainer Modal */}
+      <EmotionExplainerModal
+        isOpen={explainerOpen}
+        onClose={() => setExplainerOpen(false)}
+        explanation={explainerData}
+        loading={explainerLoading}
+      />
+    </div>
+  );
+};
