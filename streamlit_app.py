@@ -105,6 +105,16 @@ EMOTION_COLORS_HEX = {
     "disgust": "#84cc16"
 }
 
+def safe_show_image(img, caption=""):
+    """Displays an image with cross-version Streamlit compatibility."""
+    try:
+        st.image(img, caption=caption, use_container_width=True)
+    except TypeError:
+        try:
+            st.image(img, caption=caption, use_column_width=True)
+        except TypeError:
+            st.image(img, caption=caption)
+
 def draw_prediction_overlay(image_np, prediction):
     """Draws glowing bounding box, corner accents, and label on the image."""
     img_draw = image_np.copy()
@@ -219,7 +229,7 @@ if menu == "📷 Live Webcam Recognition":
         annotated_rgb = cv2.cvtColor(annotated_bgr, cv2.COLOR_BGR2RGB)
 
         with col1:
-            st.image(annotated_rgb, caption="Processed Emotion Telemetry", use_column_width=True)
+            safe_show_image(annotated_rgb, caption="Processed Emotion Telemetry")
 
         with col2:
             emotion = prediction.get("emotion", "neutral")
@@ -282,7 +292,7 @@ elif menu == "🖼️ Upload & Analyze Image":
         annotated_rgb = cv2.cvtColor(annotated_bgr, cv2.COLOR_BGR2RGB)
 
         with col1:
-            st.image(annotated_rgb, caption="Emotion Overlay HUD", use_column_width=True)
+            safe_show_image(annotated_rgb, caption="Emotion Overlay HUD")
 
         with col2:
             emotion = prediction.get("emotion", "neutral")
