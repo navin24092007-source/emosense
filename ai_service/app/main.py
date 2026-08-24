@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 
-from app.utils import read_upload_image, decode_base64_image
-from app.emotion_model import recognizer, EMOTION_LABELS
+from .utils import read_upload_image, decode_base64_image
+from .emotion_model import recognizer, EMOTION_LABELS
 
 app = FastAPI(
     title="EmoSense AI Microservice",

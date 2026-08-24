@@ -8,10 +8,10 @@
     "dev": "npm --prefix backend run dev",
     "dev:backend": "npm --prefix backend run dev",
     "dev:frontend": "npm --prefix frontend run dev",
-    "dev:ai": "cd ai-service && python -m uvicorn app.main:app --reload --port 8000",
+    "dev:ai": "cd ai_service && python -m uvicorn app.main:app --reload --port 8000",
     "start": "npm --prefix backend run dev",
     "test:backend": "npm --prefix backend test",
-    "test:ai": "cd ai-service && pytest"
+    "test:ai": "cd ai_service && pytest"
   },
   "keywords": [
     "emotion-recognition",

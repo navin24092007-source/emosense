@@ -13,7 +13,7 @@ services:
 
   ai-service:
     build:
-      context: ./ai-service
+      context: ./ai_service
       dockerfile: Dockerfile
     container_name: emosense-ai-service
     ports:
