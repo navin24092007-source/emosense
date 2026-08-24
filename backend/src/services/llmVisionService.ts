@@ -73,21 +73,27 @@ export const predictWithGeminiVision = async (
   };
 
   const response = await axios.post(url, requestBody, {
-    headers: { 'Content-Type': 'application/json' },
-    timeout: 10000
+    headers: { 
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey
+    },
+    timeout: 12000
   });
 
-  const textContent = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  let textContent = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!textContent) {
     throw new Error('Gemini Vision returned empty response');
   }
 
+  // Strip markdown code fences if present
+  textContent = textContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
   const parsed = JSON.parse(textContent);
   return {
     emotion: parsed.emotion?.toLowerCase() || 'neutral',
-    confidence: parsed.confidence || 0.85,
+    confidence: parsed.confidence || 0.92,
     all_probs: parsed.all_probs || {
-      angry: 0.05, disgust: 0.05, fear: 0.05, happy: 0.05, neutral: 0.70, sad: 0.05, surprise: 0.05
+      angry: 0.02, disgust: 0.02, fear: 0.02, happy: 0.02, neutral: 0.85, sad: 0.05, surprise: 0.02
     },
     action_units: parsed.action_units || [],
     compound_label: parsed.compound_label || parsed.emotion,
