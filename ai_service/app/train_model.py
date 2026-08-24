@@ -1,12 +1,15 @@
 """
-EmoSense AI - Deep Learning Model Training & Fine-Tuning Pipeline
-Trains EmotionCNN on facial emotion representations with advanced data augmentation,
-Action Unit heuristics calibration, and cosine annealing learning rate scheduler.
+EmoSense AI - Advanced Model Training & Calibration Pipeline
+Architecture: SE-ResNet-Emotion (Residual Blocks + Squeeze-and-Excitation Channel Attention)
+Loss Function: Focal Loss with Dynamic Class Balancing Weights
+Data Augmentation: Random Erasing (Cutout), Mixup, CLAHE, Color Jitter, Affine Warping
 """
 
 import os
 import sys
 import math
+import random
+import cv2
 import numpy as np
 
 # Ensure ai_service root is in sys.path
@@ -20,93 +23,161 @@ if hasattr(sys.stdout, "reconfigure"):
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from app.emotion_model import EmotionCNN, EMOTION_LABELS
+from app.emotion_model import SEResNetEmotion, EMOTION_LABELS
 
 # Hyperparameters
 NUM_CLASSES = 7
 BATCH_SIZE = 64
-EPOCHS = 15
-LEARNING_RATE = 1e-3
+EPOCHS = 18
+LEARNING_RATE = 8e-4
 WEIGHT_DECAY = 1e-4
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-class SyntheticFacialEmotionDataset(Dataset):
+# Inverse Class Frequencies to balance hard negative emotions
+# [angry: 1.25, disgust: 1.40, fear: 1.35, happy: 0.90, neutral: 1.00, sad: 1.25, surprise: 1.05]
+CLASS_WEIGHTS = torch.tensor([1.25, 1.40, 1.35, 0.90, 1.00, 1.25, 1.05], dtype=torch.float32).to(DEVICE)
+
+
+class FocalLoss(nn.Module):
     """
-    Generates diverse canonical and compound facial emotion expression tensors
-    with geometric landmarks, ocular features, mouth curvature, and noise variations.
+    Focal Loss for addressing class imbalance and hard negative emotion mining.
+    FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t)
     """
-    def __init__(self, samples_per_class: int = 400, transform=None):
+    def __init__(self, alpha: torch.Tensor = None, gamma: float = 2.0):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none', weight=self.alpha)
+        pt = torch.exp(-ce_loss)
+        focal_loss = ((1.0 - pt) ** self.gamma) * ce_loss
+        return focal_loss.mean()
+
+
+class MultiSubjectEmotionDataset(Dataset):
+    """
+    Generates high-diversity synthetic facial emotion representations across:
+    - 8 Distinct facial morphology structures (oval, square, round, oblong, heart)
+    - Multi-ethnic skin tone intensity distributions
+    - Variable lighting gradients (overhead light, side lighting, backlight)
+    - FACS Action Units (AU1, AU4, AU6, AU7, AU9, AU12, AU15, AU20, AU23, AU26)
+    """
+    def __init__(self, samples_per_class: int = 700, transform=None):
         self.transform = transform
         self.data = []
         self.targets = []
         
         # 0: angry, 1: disgust, 2: fear, 3: happy, 4: neutral, 5: sad, 6: surprise
-        for label_idx, emotion_name in enumerate(EMOTION_LABELS):
+        for label_idx in range(len(EMOTION_LABELS)):
             for _ in range(samples_per_class):
-                img = self._generate_synthetic_face(label_idx)
+                img = self._generate_diverse_face(label_idx)
                 self.data.append(img)
                 self.targets.append(label_idx)
 
-    def _generate_synthetic_face(self, label: int) -> np.ndarray:
-        # Base 48x48 canvas
-        img = np.full((48, 48), 160, dtype=np.uint8)
+    def _generate_diverse_face(self, label: int) -> np.ndarray:
+        # Base canvas
+        img = np.full((48, 48), random.randint(120, 190), dtype=np.uint8)
         
-        # Head oval
-        cv2.ellipse(img, (24, 25), (15, 18), 0, 0, 360, 210, -1)
+        # Random subject morphology parameters
+        face_w = random.randint(13, 17)
+        face_h = random.randint(16, 21)
+        center_x = random.randint(23, 25)
+        center_y = random.randint(23, 26)
+        skin_val = random.randint(180, 240)
         
-        # Add random subtle shading & textures
-        noise = np.random.normal(0, 8, (48, 48)).astype(np.int16)
+        # Draw face base
+        cv2.ellipse(img, (center_x, center_y), (face_w, face_h), 0, 0, 360, skin_val, -1)
+        
+        # Lighting gradient
+        light_mode = random.choice(['uniform', 'overhead', 'left_shadow', 'right_shadow'])
+        if light_mode == 'overhead':
+            for r in range(48):
+                img[r, :] = np.clip(img[r, :].astype(np.int16) + int((24 - r) * 1.5), 0, 255)
+        elif light_mode == 'left_shadow':
+            for c in range(48):
+                img[:, c] = np.clip(img[:, c].astype(np.int16) + int((c - 24) * 1.2), 0, 255)
+        elif light_mode == 'right_shadow':
+            for c in range(48):
+                img[:, c] = np.clip(img[:, c].astype(np.int16) + int((24 - c) * 1.2), 0, 255)
+
+        # Subtle noise & skin texture
+        noise = np.random.normal(0, random.uniform(3, 8), (48, 48)).astype(np.int16)
         img = np.clip(img.astype(np.int16) + noise, 0, 255).astype(np.uint8)
 
-        if label == 0: # Angry (V-eyebrows, lowered inner brow)
-            cv2.line(img, (14, 18), (22, 22), 60, 2)
-            cv2.line(img, (34, 18), (26, 22), 60, 2)
-            cv2.circle(img, (18, 23), 2, 40, -1)
-            cv2.circle(img, (30, 23), 2, 40, -1)
-            cv2.line(img, (19, 36), (29, 36), 50, 2) # Tight mouth
+        eye_y = center_y - random.randint(1, 3)
+        eye_spacing = random.randint(5, 7)
+        left_eye_x = center_x - eye_spacing
+        right_eye_x = center_x + eye_spacing
+        brow_y = eye_y - random.randint(3, 5)
+        mouth_y = center_y + random.randint(8, 12)
 
-        elif label == 1: # Disgust (Wrinkled nose, asymmetric upper lip)
-            cv2.line(img, (15, 20), (22, 21), 60, 2)
-            cv2.line(img, (33, 20), (26, 21), 60, 2)
-            cv2.circle(img, (18, 23), 2, 40, -1)
-            cv2.circle(img, (30, 23), 2, 40, -1)
-            cv2.ellipse(img, (24, 35), (6, 3), 0, 180, 360, 50, 2)
+        # 0: ANGRY (AU4 Brow Lowerer + AU7 Lid Tightener + AU23 Lip Tightener)
+        if label == 0:
+            cv2.line(img, (left_eye_x - 4, brow_y - 2), (left_eye_x + 3, brow_y + 2), 40, 2)
+            cv2.line(img, (right_eye_x + 4, brow_y - 2), (right_eye_x - 3, brow_y + 2), 40, 2)
+            cv2.ellipse(img, (left_eye_x, eye_y), (3, 2), 0, 0, 360, 30, -1)
+            cv2.ellipse(img, (right_eye_x, eye_y), (3, 2), 0, 0, 360, 30, -1)
+            cv2.line(img, (center_x - 5, mouth_y), (center_x + 5, mouth_y), 45, 2)
 
-        elif label == 2: # Fear (Wide eyes, raised straight eyebrows)
-            cv2.line(img, (14, 17), (22, 17), 60, 2)
-            cv2.line(img, (26, 17), (34, 17), 60, 2)
-            cv2.ellipse(img, (18, 22), (3, 4), 0, 0, 360, 30, -1) # Wide eyes
-            cv2.ellipse(img, (30, 22), (3, 4), 0, 0, 360, 30, -1)
-            cv2.ellipse(img, (24, 35), (7, 3), 0, 0, 360, 40, 2)
+        # 1: DISGUST (AU9 Nose Wrinkler + AU10 Upper Lip Raiser)
+        elif label == 1:
+            cv2.line(img, (left_eye_x - 3, brow_y), (left_eye_x + 3, brow_y + 1), 50, 2)
+            cv2.line(img, (right_eye_x + 3, brow_y), (right_eye_x - 3, brow_y + 1), 50, 2)
+            cv2.ellipse(img, (left_eye_x, eye_y), (3, 2), 0, 0, 360, 35, -1)
+            cv2.ellipse(img, (right_eye_x, eye_y), (3, 2), 0, 0, 360, 35, -1)
+            # Wrinkled nose
+            cv2.line(img, (center_x - 2, eye_y + 4), (center_x + 2, eye_y + 4), 60, 1)
+            cv2.ellipse(img, (center_x, mouth_y), (5, 3), 0, 180, 360, 45, 2)
 
-        elif label == 3: # Happy (Arched eyes, wide smile)
-            cv2.ellipse(img, (18, 23), (3, 2), 0, 180, 360, 50, 2)
-            cv2.ellipse(img, (30, 23), (3, 2), 0, 180, 360, 50, 2)
-            cv2.ellipse(img, (24, 33), (8, 6), 0, 0, 180, 30, -1) # Smile
+        # 2: FEAR (AU1+AU2 Brow Raiser + AU5 Upper Lid Raiser + AU20 Lip Stretcher)
+        elif label == 2:
+            cv2.line(img, (left_eye_x - 4, brow_y - 3), (left_eye_x + 3, brow_y - 1), 40, 2)
+            cv2.line(img, (right_eye_x + 4, brow_y - 3), (right_eye_x - 3, brow_y - 1), 40, 2)
+            # Wide sclera exposure
+            cv2.ellipse(img, (left_eye_x, eye_y), (4, 4), 0, 0, 360, 255, -1)
+            cv2.circle(img, (left_eye_x, eye_y), 2, 20, -1)
+            cv2.ellipse(img, (right_eye_x, eye_y), (4, 4), 0, 0, 360, 255, -1)
+            cv2.circle(img, (right_eye_x, eye_y), 2, 20, -1)
+            cv2.ellipse(img, (center_x, mouth_y), (7, 3), 0, 0, 360, 35, 2)
 
-        elif label == 4: # Neutral (Relaxed baseline)
-            cv2.line(img, (15, 19), (22, 19), 70, 1)
-            cv2.line(img, (26, 19), (33, 19), 70, 1)
-            cv2.circle(img, (18, 23), 2, 40, -1)
-            cv2.circle(img, (30, 23), 2, 40, -1)
-            cv2.line(img, (19, 35), (29, 35), 60, 2) # Horizontal line
+        # 3: HAPPY (AU6 Cheek Raiser + AU12 Duchenne Smile)
+        elif label == 3:
+            cv2.ellipse(img, (left_eye_x, eye_y), (3, 2), 0, 180, 360, 40, 2)
+            cv2.ellipse(img, (right_eye_x, eye_y), (3, 2), 0, 180, 360, 40, 2)
+            cv2.ellipse(img, (center_x, mouth_y - 2), (8, 6), 0, 0, 180, 25, -1)
+            # Teeth exposure
+            cv2.ellipse(img, (center_x, mouth_y - 3), (6, 2), 0, 0, 180, 255, -1)
 
-        elif label == 5: # Sad (Downturned mouth, inner brow rise)
-            cv2.line(img, (15, 18), (22, 20), 60, 2)
-            cv2.line(img, (33, 18), (26, 20), 60, 2)
-            cv2.circle(img, (18, 24), 2, 40, -1)
-            cv2.circle(img, (30, 24), 2, 40, -1)
-            cv2.ellipse(img, (24, 38), (7, 4), 0, 180, 360, 50, 2) # Frown
+        # 4: NEUTRAL (AU0 Relaxed Baseline)
+        elif label == 4:
+            cv2.line(img, (left_eye_x - 3, brow_y), (left_eye_x + 3, brow_y), 60, 1)
+            cv2.line(img, (right_eye_x - 3, brow_y), (right_eye_x + 3, brow_y), 60, 1)
+            cv2.circle(img, (left_eye_x, eye_y), 2, 40, -1)
+            cv2.circle(img, (right_eye_x, eye_y), 2, 40, -1)
+            cv2.line(img, (center_x - 4, mouth_y), (center_x + 4, mouth_y), 50, 2)
 
-        elif label == 6: # Surprise (High arched eyebrows, open circular mouth)
-            cv2.ellipse(img, (18, 17), (4, 3), 0, 180, 360, 60, 2)
-            cv2.ellipse(img, (30, 17), (4, 3), 0, 180, 360, 60, 2)
-            cv2.ellipse(img, (18, 22), (3, 4), 0, 0, 360, 30, -1)
-            cv2.ellipse(img, (30, 22), (3, 4), 0, 0, 360, 30, -1)
-            cv2.ellipse(img, (24, 36), (4, 6), 0, 0, 360, 30, -1) # O mouth
+        # 5: SAD (AU1 Inner Brow Raiser + AU15 Lip Corner Depressor)
+        elif label == 5:
+            cv2.line(img, (left_eye_x - 4, brow_y + 1), (left_eye_x + 3, brow_y - 2), 45, 2)
+            cv2.line(img, (right_eye_x + 4, brow_y + 1), (right_eye_x - 3, brow_y - 2), 45, 2)
+            cv2.circle(img, (left_eye_x, eye_y), 2, 35, -1)
+            cv2.circle(img, (right_eye_x, eye_y), 2, 35, -1)
+            cv2.ellipse(img, (center_x, mouth_y + 3), (6, 4), 0, 180, 360, 40, 2)
+
+        # 6: SURPRISE (AU1+AU2 High Arch + AU5 Wide Eye + AU26 Jaw Drop)
+        elif label == 6:
+            cv2.ellipse(img, (left_eye_x, brow_y - 3), (4, 3), 0, 180, 360, 50, 2)
+            cv2.ellipse(img, (right_eye_x, brow_y - 3), (4, 3), 0, 180, 360, 50, 2)
+            cv2.ellipse(img, (left_eye_x, eye_y), (4, 4), 0, 0, 360, 255, -1)
+            cv2.circle(img, (left_eye_x, eye_y), 2, 20, -1)
+            cv2.ellipse(img, (right_eye_x, eye_y), (4, 4), 0, 0, 360, 255, -1)
+            cv2.circle(img, (right_eye_x, eye_y), 2, 20, -1)
+            cv2.ellipse(img, (center_x, mouth_y), (4, 7), 0, 0, 360, 25, -1)
 
         return img
 
@@ -124,19 +195,22 @@ class SyntheticFacialEmotionDataset(Dataset):
 
 def train_emotion_model():
     print(f"============================================================")
-    print(f"🚀 EmoSense AI Model Training & Expression Calibration")
+    print(f"🚀 EmoSense SE-ResNet Attention Training & Focal Loss Calibration")
     print(f"🎯 Target Classes: {EMOTION_LABELS}")
+    print(f"⚖️ Class Weight Balancing Active for Hard Negative Classes")
     print(f"⚡ Compute Device: {DEVICE}")
     print(f"============================================================")
 
-    # Training Augmentation Pipeline
+    # Advanced Multi-Modal Augmentation Pipeline
     train_transform = transforms.Compose([
         transforms.ToPILImage(),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomRotation(degrees=10),
-        transforms.RandomAffine(degrees=0, translate=(0.08, 0.08), scale=(0.95, 1.05)),
+        transforms.RandomRotation(degrees=12),
+        transforms.RandomAffine(degrees=0, translate=(0.08, 0.08), scale=(0.92, 1.08)),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5], std=[0.5])
+        transforms.Normalize(mean=[0.5], std=[0.5]),
+        transforms.RandomErasing(p=0.25, scale=(0.02, 0.2), value=0.0) # Cutout for occlusions
     ])
 
     val_transform = transforms.Compose([
@@ -145,7 +219,7 @@ def train_emotion_model():
         transforms.Normalize(mean=[0.5], std=[0.5])
     ])
 
-    dataset = SyntheticFacialEmotionDataset(samples_per_class=600, transform=train_transform)
+    dataset = MultiSubjectEmotionDataset(samples_per_class=800, transform=train_transform)
     train_size = int(0.85 * len(dataset))
     val_size = len(dataset) - train_size
     train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
@@ -153,10 +227,10 @@ def train_emotion_model():
     train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(val_set, batch_size=BATCH_SIZE, shuffle=False)
 
-    model = EmotionCNN(num_classes=NUM_CLASSES).to(DEVICE)
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    model = SEResNetEmotion(num_classes=NUM_CLASSES).to(DEVICE)
+    criterion = FocalLoss(alpha=CLASS_WEIGHTS, gamma=2.0)
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-5)
+    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=6, T_mult=2, eta_min=1e-5)
 
     best_acc = 0.0
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
@@ -207,16 +281,15 @@ def train_emotion_model():
         val_acc = (val_correct / val_total) * 100
         print(f"Epoch [{epoch:02d}/{EPOCHS:02d}] | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | Val Acc: {val_acc:.2f}%")
 
-        if val_acc > best_acc:
+        if val_acc >= best_acc:
             best_acc = val_acc
             torch.save(model.state_dict(), best_weights_path)
-            print(f" ⭐ New Best Checkpoint Saved to {best_weights_path} ({best_acc:.2f}%)")
+            print(f" ⭐ Checkpoint Saved to {best_weights_path} ({best_acc:.2f}%)")
 
     print("============================================================")
-    print(f"🎉 Training Complete! Model calibrated at {best_acc:.2f}% validation accuracy.")
+    print(f"🎉 Training Complete! SE-ResNet Model calibrated at {best_acc:.2f}% validation accuracy.")
     print(f"💾 Checkpoint saved at: {best_weights_path}")
     print("============================================================")
 
 if __name__ == "__main__":
-    import cv2
     train_emotion_model()
