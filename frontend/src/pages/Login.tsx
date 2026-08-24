@@ -3,7 +3,7 @@ import { useNavigate, Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../types';
-import { BrainCircuit, GraduationCap, Stethoscope, Headphones, ShieldCheck, Sparkles, Loader2 } from 'lucide-react';
+import { BrainCircuit, GraduationCap, BookOpen, Stethoscope, Headphones, ShieldCheck, Sparkles, Loader2 } from 'lucide-react';
 
 const GOOGLE_CLIENT_ID = "15887127624-7ihrpsc97ko08itvuitooms2pbosl6tu.apps.googleusercontent.com";
 
@@ -20,11 +20,11 @@ export const Login: React.FC = () => {
   }
 
   const roles: { role: UserRole; title: string; desc: string; icon: any; color: string }[] = [
-    { role: 'student', title: 'Student', desc: 'Education & Learning Engagement', icon: GraduationCap, color: 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10' },
-    { role: 'teacher', title: 'Teacher / Instructor', desc: 'Classroom Confusion Monitoring', icon: GraduationCap, color: 'border-sky-500/40 text-sky-400 bg-sky-500/10' },
-    { role: 'therapist', title: 'Therapist / Clinician', desc: 'Patient Longitudinal Mood Analytics', icon: Stethoscope, color: 'border-purple-500/40 text-purple-400 bg-purple-500/10' },
-    { role: 'agent', title: 'Customer Rep', desc: 'Call Frustration & Sentiment Review', icon: Headphones, color: 'border-amber-500/40 text-amber-400 bg-amber-500/10' },
-    { role: 'admin', title: 'System Admin', desc: 'Global Control & Data Policy', icon: ShieldCheck, color: 'border-rose-500/40 text-rose-400 bg-rose-500/10' }
+    { role: 'student', title: 'Student', desc: 'Education & Personal Learning Engagement', icon: GraduationCap, color: 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10' },
+    { role: 'teacher', title: 'Teacher / Instructor', desc: 'Classroom Confusion & Attention Analytics', icon: BookOpen, color: 'border-sky-500/40 text-sky-400 bg-sky-500/10' },
+    { role: 'therapist', title: 'Therapist / Clinician', desc: 'Patient Longitudinal Affect & Mood Recovery', icon: Stethoscope, color: 'border-purple-500/40 text-purple-400 bg-purple-500/10' },
+    { role: 'agent', title: 'Customer Experience (CSAT)', desc: 'Call Sentiment & Frustration Risk Alerts', icon: Headphones, color: 'border-amber-500/40 text-amber-400 bg-amber-500/10' },
+    { role: 'admin', title: 'System Admin', desc: 'Multi-Vertical Analytics & Global Telemetry', icon: ShieldCheck, color: 'border-rose-500/40 text-rose-400 bg-rose-500/10' }
   ];
 
   // Initialize Google Identity Services

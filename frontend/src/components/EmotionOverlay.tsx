@@ -8,6 +8,16 @@ interface EmotionOverlayProps {
   videoHeight: number;
 }
 
+export const emotionHexColors: Record<EmotionType, string> = {
+  happy: '#10b981',
+  sad: '#3b82f6',
+  angry: '#ef4444',
+  surprise: '#f59e0b',
+  fear: '#a855f7',
+  disgust: '#84cc16',
+  neutral: '#94a3b8'
+};
+
 export const emotionColors: Record<EmotionType, { bg: string; text: string; border: string; bar: string; icon: any }> = {
   happy: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/50', bar: 'bg-emerald-500', icon: Smile },
   sad: { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/50', bar: 'bg-blue-500', icon: Frown },

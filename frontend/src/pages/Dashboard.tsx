@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
-import { Session, SessionContext, EmotionExplanation } from '../types';
+import { useAuth } from '../context/AuthContext';
+import { Session, SessionContext, EmotionExplanation, UserRole } from '../types';
 import { EmotionRadarChart } from '../components/EmotionRadarChart';
 import { ValenceArousalChart } from '../components/ValenceArousalChart';
 import { EmotionExplainerModal } from '../components/EmotionExplainerModal';
@@ -17,8 +18,8 @@ import {
   Headphones, 
   Activity, 
   RefreshCw,
-  Sparkles,
-  Download,
+  Sparkles, 
+  Download, 
   FileText,
   TrendingUp,
   HeartPulse,
@@ -31,17 +32,31 @@ import {
   Zap,
   BarChart2,
   SlidersHorizontal,
-  Compass
+  Compass,
+  BookOpen,
+  UserCheck
 } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { emotionColors } from '../components/EmotionOverlay';
+import { emotionHexColors } from '../components/EmotionOverlay';
 
-type DashboardTab = 'global' | 'education' | 'healthcare' | 'customer';
+type DashboardTab = 'global' | 'student' | 'teacher' | 'healthcare' | 'customer';
 
 export const Dashboard: React.FC = () => {
+  const { user } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<DashboardTab>('global');
+  
+  // Set initial tab based on logged-in user role
+  const getInitialTab = (): DashboardTab => {
+    if (!user) return 'global';
+    if (user.role === 'student') return 'student';
+    if (user.role === 'teacher') return 'teacher';
+    if (user.role === 'therapist') return 'healthcare';
+    if (user.role === 'agent') return 'customer';
+    return 'global';
+  };
+
+  const [activeTab, setActiveTab] = useState<DashboardTab>(getInitialTab());
   const [searchFilter, setSearchFilter] = useState<string>('');
   
   // Explainer Modal state
@@ -65,12 +80,18 @@ export const Dashboard: React.FC = () => {
     fetchSessions();
   }, []);
 
+  // Sync initial tab when user profile loads
+  useEffect(() => {
+    if (user) {
+      setActiveTab(getInitialTab());
+    }
+  }, [user]);
+
   const handleTabChange = (tab: DashboardTab) => {
     soundManager.playBlip(560, 50);
     setActiveTab(tab);
   };
 
-  // Open AI Explainer for Global Insights or specific context
   const handleExplainWithAI = async (context: SessionContext = 'education', specificEmotion?: string) => {
     soundManager.playBlip(700, 60);
     setExplainerOpen(true);
@@ -105,72 +126,79 @@ export const Dashboard: React.FC = () => {
   });
 
   const filteredSessions = sessions.filter(s => {
-    if (activeTab !== 'global' && s.context !== activeTab) return false;
+    if (activeTab === 'student' || activeTab === 'teacher') {
+      if (s.context !== 'education') return false;
+    } else if (activeTab === 'healthcare') {
+      if (s.context !== 'healthcare') return false;
+    } else if (activeTab === 'customer') {
+      if (s.context !== 'customer') return false;
+    }
     if (!searchFilter) return true;
     const q = searchFilter.toLowerCase();
     return s._id.toLowerCase().includes(q) || s.context.toLowerCase().includes(q) || (s.dominantEmotion || '').toLowerCase().includes(q);
   });
 
-  const getContextIcon = (ctx: SessionContext) => {
-    switch (ctx) {
-      case 'education': return <GraduationCap className="w-4 h-4 text-emerald-400" />;
-      case 'healthcare': return <Stethoscope className="w-4 h-4 text-purple-400" />;
-      case 'customer': return <Headphones className="w-4 h-4 text-amber-400" />;
+  const getRoleDisplay = () => {
+    const role = user?.role || 'student';
+    switch (role) {
+      case 'student': return { title: 'Student', icon: GraduationCap, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' };
+      case 'teacher': return { title: 'Teacher / Instructor', icon: BookOpen, color: 'text-sky-400 bg-sky-500/10 border-sky-500/30' };
+      case 'therapist': return { title: 'Therapist / Clinician', icon: Stethoscope, color: 'text-purple-400 bg-purple-500/10 border-purple-500/30' };
+      case 'agent': return { title: 'Customer Rep (CSAT)', icon: Headphones, color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' };
+      default: return { title: 'System Admin', icon: ShieldCheck, color: 'text-rose-400 bg-rose-500/10 border-rose-500/30' };
     }
   };
 
+  const roleInfo = getRoleDisplay();
+  const RoleIcon = roleInfo.icon;
+
   return (
-    <div className="space-y-6">
-      {/* Header Banner */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 shadow-md shadow-sky-500/20 text-white">
-              <LayoutDashboard className="w-6 h-6" />
+    <div className="space-y-8 animate-fade-in max-w-7xl mx-auto pb-12">
+      {/* Top Header Card with User Role Highlight */}
+      <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800/80 bg-slate-900/40 relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+        <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+        <div className="space-y-2 relative z-10">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-bold ${roleInfo.color}`}>
+              <RoleIcon className="w-3.5 h-3.5" />
+              <span>Logged In: {roleInfo.title}</span>
             </div>
-            <div>
-              <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                Affective Intelligence Analytics Hub
-              </h1>
-              <p className="text-xs text-slate-400">
-                Multi-domain telemetry, longitudinal trend modeling, and real-time AI explanations
-              </p>
-            </div>
+            {user?.name && (
+              <span className="text-xs text-slate-400 font-medium">
+                Welcome back, <strong className="text-white">{user.name}</strong>
+              </span>
+            )}
           </div>
+          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+            Affective Intelligence & Domain Analytics
+          </h1>
+          <p className="text-sm text-slate-400 max-w-2xl leading-relaxed">
+            Multi-perspective telemetry across Education (Student & Teacher), Clinical Healthcare (Therapist), and Customer Experience (CSAT) analytics.
+          </p>
         </div>
 
-        {/* Global Action Bar */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          <button
-            onClick={() => handleExplainWithAI(activeTab === 'global' ? 'education' : activeTab)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:opacity-95 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition hover:scale-102"
-          >
-            <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
-            <span>Explain Hub with AI</span>
-          </button>
-
+        {/* Global Action Buttons */}
+        <div className="flex items-center gap-3 relative z-10 w-full md:w-auto">
           <button
             onClick={() => exportSessionsToCSV(sessions)}
             disabled={sessions.length === 0}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold transition disabled:opacity-50"
-            title="Export telemetry database to CSV"
+            className="btn-secondary px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 w-full md:w-auto"
           >
-            <Download className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="hidden sm:inline">Export CSV</span>
+            <Download className="w-4 h-4 text-indigo-400" />
+            <span>Export CSV</span>
           </button>
-
           <button
-            onClick={fetchSessions}
-            className="p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800 text-slate-300 transition"
-            title="Refresh Sessions"
+            onClick={() => handleExplainWithAI(activeTab === 'healthcare' ? 'healthcare' : activeTab === 'customer' ? 'customer' : 'education')}
+            className="btn-primary px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 w-full md:w-auto"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-indigo-400' : ''}`} />
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>AI Insights</span>
           </button>
         </div>
       </div>
 
-      {/* Domain Navigation Tabs */}
-      <div className="flex overflow-x-auto pb-1 gap-2 border-b border-slate-800">
+      {/* 5-TAB PERSPECTIVE SWITCHER */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-slate-800/80">
         <button
           onClick={() => handleTabChange('global')}
           className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
@@ -179,20 +207,32 @@ export const Dashboard: React.FC = () => {
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
           }`}
         >
-          <BarChart2 className="w-4 h-4 text-sky-400" />
-          <span>Global Overview ({sessions.length})</span>
+          <LayoutDashboard className="w-4 h-4 text-indigo-400" />
+          <span>🌐 Global Overview</span>
         </button>
 
         <button
-          onClick={() => handleTabChange('education')}
+          onClick={() => handleTabChange('student')}
           className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
-            activeTab === 'education'
+            activeTab === 'student'
               ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 shadow-inner'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
           }`}
         >
           <GraduationCap className="w-4 h-4 text-emerald-400" />
-          <span>🎓 Education Hub ({sessions.filter(s => s.context === 'education').length})</span>
+          <span>🎓 Student Learner Hub</span>
+        </button>
+
+        <button
+          onClick={() => handleTabChange('teacher')}
+          className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
+            activeTab === 'teacher'
+              ? 'bg-sky-600/20 text-sky-300 border border-sky-500/40 shadow-inner'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+          }`}
+        >
+          <BookOpen className="w-4 h-4 text-sky-400" />
+          <span>👨‍🏫 Teacher Classroom Hub</span>
         </button>
 
         <button
@@ -204,7 +244,7 @@ export const Dashboard: React.FC = () => {
           }`}
         >
           <Stethoscope className="w-4 h-4 text-purple-400" />
-          <span>🏥 Healthcare & Therapy ({sessions.filter(s => s.context === 'healthcare').length})</span>
+          <span>🩺 Therapist Clinical Hub</span>
         </button>
 
         <button
@@ -216,12 +256,12 @@ export const Dashboard: React.FC = () => {
           }`}
         >
           <Headphones className="w-4 h-4 text-amber-400" />
-          <span>🎧 Customer Experience ({sessions.filter(s => s.context === 'customer').length})</span>
+          <span>🎧 Customer Experience (CSAT)</span>
         </button>
       </div>
 
       {/* ========================================================================= */}
-      {/* TAB 1: GLOBAL ANALYTICS OVERVIEW                                          */}
+      {/* TAB 1: GLOBAL OVERVIEW                                                    */}
       {/* ========================================================================= */}
       {activeTab === 'global' && (
         <div className="space-y-6 animate-fade-in">
@@ -233,7 +273,7 @@ export const Dashboard: React.FC = () => {
                 <Activity className="w-4 h-4 text-indigo-400" />
               </div>
               <div className="text-2xl font-extrabold text-white">{sessions.length}</div>
-              <div className="text-[11px] text-slate-500">Across 3 domain verticals</div>
+              <div className="text-[11px] text-slate-500">Across all domain verticals</div>
             </div>
 
             <div className="glass-panel p-4 rounded-2xl border border-slate-800 space-y-1">
@@ -255,7 +295,7 @@ export const Dashboard: React.FC = () => {
               <div className="text-2xl font-extrabold text-purple-400">
                 {sessions.filter(s => s.context === 'healthcare').length}
               </div>
-              <div className="text-[11px] text-slate-500">Therapy mood trends</div>
+              <div className="text-[11px] text-slate-500">Therapist longitudinal mood</div>
             </div>
 
             <div className="glass-panel p-4 rounded-2xl border border-slate-800 space-y-1">
@@ -270,7 +310,7 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Advanced Visual Charts Grid: 7-Class Radar + 2D Valence-Arousal Plane */}
+          {/* 7-Class Radar + 2D Valence-Arousal Plane */}
           <div className="grid lg:grid-cols-2 gap-6">
             <div className="glass-panel p-5 rounded-3xl border border-slate-800 space-y-3 flex flex-col justify-between">
               <div>
@@ -285,7 +325,6 @@ export const Dashboard: React.FC = () => {
                   Comprehensive emotional footprint computed across all logged frames in session history.
                 </p>
               </div>
-
               <EmotionRadarChart distribution={globalDistribution} height={250} />
             </div>
 
@@ -302,7 +341,6 @@ export const Dashboard: React.FC = () => {
                   Affective quadrant mapping: Horizontal Valence (Pleasant vs Unpleasant) vs Vertical Arousal (Energy).
                 </p>
               </div>
-
               <ValenceArousalChart 
                 currentEmotion={sessions.length > 0 ? sessions[0].dominantEmotion : 'neutral'} 
                 height={250} 
@@ -313,24 +351,80 @@ export const Dashboard: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 2: EDUCATION DOMAIN SECTION                                           */}
+      {/* TAB 2: STUDENT LEARNER HUB                                                */}
       {/* ========================================================================= */}
-      {activeTab === 'education' && (
+      {activeTab === 'student' && (
+        <div className="space-y-6 animate-fade-in">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="text-[10px] font-bold uppercase tracking-wider">Personal Attention Index</span>
+                <TrendingUp className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div className="text-2xl font-extrabold text-emerald-400">89% Focus</div>
+              <p className="text-[11px] text-slate-400">High visual attentiveness & active engagement</p>
+            </div>
+
+            <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="text-[10px] font-bold uppercase tracking-wider">Confusion Rate</span>
+                <HelpCircle className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="text-2xl font-extrabold text-amber-400">11% Puzzled</div>
+              <p className="text-[11px] text-slate-400">Low cognitive friction on current topics</p>
+            </div>
+
+            <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="text-[10px] font-bold uppercase tracking-wider">Total Study Sessions</span>
+                <GraduationCap className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div className="text-2xl font-extrabold text-white">
+                {sessions.filter(s => s.context === 'education').length}
+              </div>
+              <p className="text-[11px] text-slate-400">Logged learning sessions</p>
+            </div>
+          </div>
+
+          <div className="glass-panel p-6 rounded-3xl border border-emerald-500/30 bg-emerald-500/5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                Personalized Cognitive Study Coach
+              </h3>
+              <button
+                onClick={() => handleExplainWithAI('education', 'happy')}
+                className="text-[11px] font-semibold text-emerald-300 underline hover:text-white"
+              >
+                Detailed Learning Breakdown
+              </button>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Your focus peaks when interactive problem-solving exercises are presented. If eye fatigue or brow tension is detected for more than 15 consecutive minutes, the system recommends taking a 2-minute visual rest.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 3: TEACHER CLASSROOM HUB                                              */}
+      {/* ========================================================================= */}
+      {activeTab === 'teacher' && (
         <div className="space-y-6 animate-fade-in">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-2">
               <div className="flex items-center justify-between text-slate-400">
                 <span className="text-[10px] font-bold uppercase tracking-wider">Classroom Engagement Index</span>
-                <TrendingUp className="w-4 h-4 text-emerald-400" />
+                <TrendingUp className="w-4 h-4 text-sky-400" />
               </div>
-              <div className="text-2xl font-extrabold text-emerald-400">86% Engaged</div>
-              <p className="text-[11px] text-slate-400">High student attentiveness and positive facial affect</p>
+              <div className="text-2xl font-extrabold text-sky-400">86% Engaged</div>
+              <p className="text-[11px] text-slate-400">Aggregate student positive affect and attention</p>
             </div>
 
             <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-2">
               <div className="flex items-center justify-between text-slate-400">
                 <span className="text-[10px] font-bold uppercase tracking-wider">Confusion Spikes Flagged</span>
-                <HelpCircle className="w-4 h-4 text-amber-400" />
+                <AlertTriangle className="w-4 h-4 text-amber-400" />
               </div>
               <div className="text-2xl font-extrabold text-amber-400">
                 {sessions.filter(s => s.context === 'education' && (s.dominantEmotion === 'sad' || s.dominantEmotion === 'fear')).length} Events
@@ -340,39 +434,38 @@ export const Dashboard: React.FC = () => {
 
             <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-2">
               <div className="flex items-center justify-between text-slate-400">
-                <span className="text-[10px] font-bold uppercase tracking-wider">Education Sessions Logged</span>
-                <Users className="w-4 h-4 text-sky-400" />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Classroom Lectures Logged</span>
+                <BookOpen className="w-4 h-4 text-sky-400" />
               </div>
               <div className="text-2xl font-extrabold text-white">
                 {sessions.filter(s => s.context === 'education').length}
               </div>
-              <p className="text-[11px] text-slate-400">Classroom lectures & labs</p>
+              <p className="text-[11px] text-slate-400">Live lecture telemetry</p>
             </div>
           </div>
 
-          {/* Pedagogical Guidance Box */}
-          <div className="glass-panel p-6 rounded-3xl border border-emerald-500/30 bg-emerald-500/5 space-y-3">
+          <div className="glass-panel p-6 rounded-3xl border border-sky-500/30 bg-sky-500/5 space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-2">
+              <h3 className="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-amber-300" />
-                AI Pedagogical Recommendation Engine
+                Teacher Instructional Advisory
               </h3>
               <button
                 onClick={() => handleExplainWithAI('education', 'surprise')}
-                className="text-[11px] font-semibold text-emerald-300 underline hover:text-white"
+                className="text-[11px] font-semibold text-sky-300 underline hover:text-white"
               >
                 Deep-Dive Explainer
               </button>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Students demonstrate strong curiosity during interactive demonstrations. When confusion indicators spike above 20%, the system automatically recommends the instructor pause for 60 seconds to recap with a visual model.
+              When explaining complex theoretical algorithms, confusion spikes to 24% at the 18-minute mark. Consider breaking complex theorems down into 2-minute visual diagram recaps before proceeding.
             </p>
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 3: HEALTHCARE & THERAPY DOMAIN SECTION                                */}
+      {/* TAB 4: HEALTHCARE & THERAPIST CLINICAL HUB                                */}
       {/* ========================================================================= */}
       {activeTab === 'healthcare' && (
         <div className="space-y-6 animate-fade-in">
@@ -407,12 +500,11 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Clinical Therapeutic Summary */}
           <div className="glass-panel p-6 rounded-3xl border border-purple-500/30 bg-purple-500/5 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold text-purple-400 uppercase tracking-wider flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4" />
-                Longitudinal Therapy Affective Trajectory
+                Therapist Longitudinal Affective Trajectory
               </h3>
               <button
                 onClick={() => handleExplainWithAI('healthcare', 'sad')}
@@ -429,7 +521,7 @@ export const Dashboard: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 4: CUSTOMER EXPERIENCE DOMAIN SECTION                                 */}
+      {/* TAB 5: CUSTOMER EXPERIENCE (CSAT) HUB                                     */}
       {/* ========================================================================= */}
       {activeTab === 'customer' && (
         <div className="space-y-6 animate-fade-in">
@@ -437,9 +529,9 @@ export const Dashboard: React.FC = () => {
             <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-2">
               <div className="flex items-center justify-between text-slate-400">
                 <span className="text-[10px] font-bold uppercase tracking-wider">Predicted CSAT Score</span>
-                <ThumbsUp className="w-4 h-4 text-emerald-400" />
+                <ThumbsUp className="w-4 h-4 text-amber-400" />
               </div>
-              <div className="text-2xl font-extrabold text-emerald-400">4.9 / 5.0</div>
+              <div className="text-2xl font-extrabold text-amber-400">4.9 / 5.0</div>
               <p className="text-[11px] text-slate-400">High positive customer sentiment</p>
             </div>
 
@@ -448,138 +540,128 @@ export const Dashboard: React.FC = () => {
                 <span className="text-[10px] font-bold uppercase tracking-wider">Frustration Escalation Risk</span>
                 <Flame className="w-4 h-4 text-rose-400" />
               </div>
-              <div className="text-2xl font-extrabold text-rose-400">Low Risk (8%)</div>
-              <p className="text-[11px] text-slate-400">No active angry micro-expression spikes</p>
+              <div className="text-2xl font-extrabold text-rose-400">2.1% Low</div>
+              <p className="text-[11px] text-slate-400">Immediate trigger alerts calibrated</p>
             </div>
 
             <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-2">
               <div className="flex items-center justify-between text-slate-400">
-                <span className="text-[10px] font-bold uppercase tracking-wider">Call Sentiment Reviews</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider">Customer Support Calls</span>
                 <Headphones className="w-4 h-4 text-amber-400" />
               </div>
               <div className="text-2xl font-extrabold text-white">
                 {sessions.filter(s => s.context === 'customer').length}
               </div>
-              <p className="text-[11px] text-slate-400">Support interactions logged</p>
+              <p className="text-[11px] text-slate-400">Audio/video streams analyzed</p>
             </div>
           </div>
 
-          {/* Support Agent De-escalation Co-Pilot */}
           <div className="glass-panel p-6 rounded-3xl border border-amber-500/30 bg-amber-500/5 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-400" />
-                Customer Sentiment Root-Cause & De-escalation Co-Pilot
+                <Zap className="w-4 h-4" />
+                Customer Support Sentiment Shift
               </h3>
               <button
                 onClick={() => handleExplainWithAI('customer', 'angry')}
                 className="text-[11px] font-semibold text-amber-300 underline hover:text-white"
               >
-                Explain CSAT Metrics
+                Explain Frustration Risk
               </button>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Real-time emotion tracking enables support representatives to detect subtle micro-expressions of dissatisfaction early, allowing proactive empathetic communication before formal escalation.
+              Customer sentiment improved from initial agitation to high satisfaction upon agent issue resolution. Anger markers dropped to 0% in the final 3 minutes of the support interaction.
             </p>
           </div>
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* SESSIONS TABLE & HISTORY LIST                                             */}
-      {/* ========================================================================= */}
+      {/* RECENT SESSIONS TABLE */}
       <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-              Recorded Telemetry Sessions ({filteredSessions.length})
+            <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <Activity className="w-4 h-4 text-indigo-400" />
+              Session Telemetry History ({filteredSessions.length})
             </h3>
-            <p className="text-[11px] text-slate-500">
-              Click any session for deep telemetry charts, emotion distribution, and printable AI reports.
+            <p className="text-xs text-slate-500">
+              Recorded facial emotion logs stored securely in MongoDB database.
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="Search sessions..."
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-            />
-          </div>
+          <input
+            type="text"
+            placeholder="Search session ID, context, or emotion..."
+            value={searchFilter}
+            onChange={(e) => setSearchFilter(e.target.value)}
+            className="px-4 py-2 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:border-indigo-500/60 w-full sm:w-64"
+          />
         </div>
 
         {loading ? (
-          <div className="py-16 flex flex-col items-center justify-center text-slate-500 text-xs space-y-2">
-            <RefreshCw className="w-6 h-6 animate-spin text-indigo-500" />
-            <span>Loading telemetry sessions...</span>
+          <div className="py-12 flex flex-col items-center justify-center text-indigo-400 gap-2">
+            <RefreshCw className="w-6 h-6 animate-spin" />
+            <span className="text-xs font-bold">Loading session telemetry...</span>
           </div>
-        ) : filteredSessions.length > 0 ? (
-          <div className="space-y-3">
-            {filteredSessions.map((sess) => {
-              const domEmo = sess.dominantEmotion || 'neutral';
-              const emoConfig = emotionColors[domEmo] || emotionColors.neutral;
-              const dateStr = new Date(sess.startTime).toLocaleString([], {
-                month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
-              });
-
-              return (
-                <Link
-                  key={sess._id}
-                  to={`/session/${sess._id}`}
-                  className="block p-4 rounded-2xl border border-slate-800/80 bg-slate-900/40 hover:bg-slate-800/60 hover:border-slate-700 transition group"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-3.5">
-                      <div className="p-2.5 rounded-2xl bg-slate-800/80 border border-slate-700">
-                        {getContextIcon(sess.context)}
-                      </div>
-
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold text-slate-100 group-hover:text-indigo-400 transition">
-                            Session {sess._id.slice(-6)}
-                          </span>
-                          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded border border-slate-700 bg-slate-800 text-slate-300">
-                            {sess.context}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 mt-1">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                            {dateStr}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3.5 h-3.5 text-slate-500" />
-                            {sess.durationSeconds || 0}s duration
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Activity className="w-3.5 h-3.5 text-slate-500" />
-                            {sess.logCount || 0} frames logged
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <div className={`px-3 py-1.5 rounded-xl border ${emoConfig.border} ${emoConfig.bg} text-xs font-bold capitalize ${emoConfig.text} flex items-center gap-1.5 shadow-sm`}>
-                        <emoConfig.icon className="w-4 h-4" />
-                        <span>{domEmo}</span>
-                      </div>
-
-                      <div className="p-1.5 rounded-xl bg-slate-800 text-slate-400 group-hover:text-indigo-300 group-hover:bg-indigo-600/20 transition">
-                        <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-                      </div>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
+        ) : filteredSessions.length === 0 ? (
+          <div className="py-12 text-center text-slate-500 text-xs">
+            No session logs found for this perspective. Start a live session or run static image analysis to log data.
           </div>
         ) : (
-          <div className="py-12 text-center text-slate-500 text-xs italic bg-slate-950/40 rounded-2xl border border-slate-800">
-            No session records found for this view. Start a live webcam session or upload an image to begin tracking!
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="pb-3 px-3">Session ID</th>
+                  <th className="pb-3 px-3">Domain Context</th>
+                  <th className="pb-3 px-3">Dominant Affect</th>
+                  <th className="pb-3 px-3">Logged Frames</th>
+                  <th className="pb-3 px-3">Recorded Time</th>
+                  <th className="pb-3 px-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {filteredSessions.map((sess) => (
+                  <tr key={sess._id} className="hover:bg-slate-900/40 transition-colors">
+                    <td className="py-3 px-3 font-mono text-slate-300">
+                      {sess._id.slice(-8)}
+                    </td>
+                    <td className="py-3 px-3 capitalize">
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-slate-300">
+                        {sess.context === 'education' ? '🎓 Education' : sess.context === 'healthcare' ? '🏥 Healthcare' : '🎧 Customer'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3">
+                      <span 
+                        className="px-2.5 py-0.5 rounded-full text-[11px] font-bold capitalize"
+                        style={{
+                          backgroundColor: `${emotionHexColors[sess.dominantEmotion || 'neutral']}20`,
+                          color: emotionHexColors[sess.dominantEmotion || 'neutral'],
+                          border: `1px solid ${emotionHexColors[sess.dominantEmotion || 'neutral']}40`
+                        }}
+                      >
+                        {sess.dominantEmotion || 'neutral'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-slate-400 font-mono">
+                      {sess.logCount || 1} frames
+                    </td>
+                    <td className="py-3 px-3 text-slate-400">
+                      {new Date(sess.startTime).toLocaleString()}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      <Link
+                        to={`/sessions/${sess._id}`}
+                        className="text-indigo-400 hover:text-indigo-300 font-semibold inline-flex items-center gap-1"
+                      >
+                        <span>Inspect</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
