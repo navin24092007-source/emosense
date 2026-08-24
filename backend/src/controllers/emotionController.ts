@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { predictImageFromFile, predictFrameFromBase64 } from '../services/aiService';
+import { predictWithExternalLLM } from '../services/llmVisionService';
 import { EmotionLog } from '../models/EmotionLog';
 import { Session } from '../models/Session';
 
@@ -10,8 +11,22 @@ export const predictImage = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: 'Image file is required' });
     }
 
-    const { sessionId } = req.body;
-    const result = await predictImageFromFile(req.file.buffer, req.file.originalname, req.file.mimetype);
+    const { sessionId, apiKey, provider } = req.body;
+    const userApiKey = apiKey || (req.headers['x-llm-api-key'] as string);
+    let result;
+
+    // If external LLM API key is present or requested
+    if (userApiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY) {
+      try {
+        const base64 = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+        result = await predictWithExternalLLM(base64, userApiKey, provider || 'auto');
+      } catch (llmErr) {
+        console.warn('[LLM Vision] Falling back to local PyTorch microservice:', (llmErr as any).message);
+        result = await predictImageFromFile(req.file.buffer, req.file.originalname, req.file.mimetype);
+      }
+    } else {
+      result = await predictImageFromFile(req.file.buffer, req.file.originalname, req.file.mimetype);
+    }
 
     // Save log if sessionId provided
     if (sessionId) {
@@ -35,12 +50,24 @@ export const predictImage = async (req: AuthRequest, res: Response) => {
 
 export const predictFrame = async (req: AuthRequest, res: Response) => {
   try {
-    const { image, sessionId } = req.body;
+    const { image, sessionId, apiKey, provider } = req.body;
     if (!image) {
       return res.status(400).json({ message: 'Base64 image frame is required' });
     }
 
-    const result = await predictFrameFromBase64(image);
+    const userApiKey = apiKey || (req.headers['x-llm-api-key'] as string);
+    let result;
+
+    if (userApiKey || (provider && (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY))) {
+      try {
+        result = await predictWithExternalLLM(image, userApiKey, provider || 'auto');
+      } catch (llmErr) {
+        console.warn('[LLM Vision Frame] Falling back to local PyTorch microservice:', (llmErr as any).message);
+        result = await predictFrameFromBase64(image);
+      }
+    } else {
+      result = await predictFrameFromBase64(image);
+    }
 
     if (sessionId) {
       await EmotionLog.create({

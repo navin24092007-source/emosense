@@ -33,10 +33,22 @@ export const UploadImage: React.FC = () => {
   const [sessionContext, setSessionContext] = useState<'education' | 'healthcare' | 'customer'>('education');
   const [presetCategory, setPresetCategory] = useState<'all' | 'canonical' | 'compound'>('all');
 
+  // AI Engine & API Key Configuration State
+  const [aiEngine, setAiEngine] = useState<'local' | 'gemini' | 'openai'>('local');
+  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('emosense_llm_api_key') || '');
+  const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
+
   // Explainer modal state
   const [explainerOpen, setExplainerOpen] = useState(false);
   const [explainerData, setExplainerData] = useState<EmotionExplanation | null>(null);
   const [explainerLoading, setExplainerLoading] = useState(false);
+
+  const handleSaveApiKey = (key: string) => {
+    setApiKey(key);
+    localStorage.setItem('emosense_llm_api_key', key);
+    setShowKeyModal(false);
+    soundManager.playSuccessChime();
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -60,9 +72,16 @@ export const UploadImage: React.FC = () => {
     try {
       const formData = new FormData();
       formData.append('image', selectedFile);
+      if (aiEngine !== 'local') {
+        formData.append('provider', aiEngine);
+        if (apiKey) formData.append('apiKey', apiKey);
+      }
 
       const res = await api.post('/emotions/predict-image', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 
+          'Content-Type': 'multipart/form-data',
+          ...(apiKey ? { 'x-llm-api-key': apiKey } : {})
+        }
       });
 
       soundManager.playSuccessChime();
@@ -85,7 +104,11 @@ export const UploadImage: React.FC = () => {
 
     try {
       const res = await api.post('/emotions/predict-frame', {
-        image: preset.svgDataUri
+        image: preset.svgDataUri,
+        provider: aiEngine !== 'local' ? aiEngine : undefined,
+        apiKey: aiEngine !== 'local' && apiKey ? apiKey : undefined
+      }, {
+        headers: apiKey ? { 'x-llm-api-key': apiKey } : {}
       });
 
       soundManager.playSuccessChime();
@@ -180,9 +203,52 @@ export const UploadImage: React.FC = () => {
           </p>
         </div>
 
-        {/* Context Selector */}
-        <div className="flex flex-col sm:flex-row items-center gap-3 relative z-10 w-full md:w-auto">
-          <div className="flex items-center bg-slate-950/80 p-1.5 rounded-2xl border border-slate-800 w-full sm:w-auto">
+        {/* Context & AI Engine Selector */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 relative z-10 w-full md:w-auto">
+          {/* AI Engine Switcher */}
+          <div className="flex items-center bg-slate-950/80 p-1.5 rounded-2xl border border-slate-800">
+            <button
+              onClick={() => setAiEngine('local')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                aiEngine === 'local' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>Local SE-ResNet</span>
+            </button>
+            <button
+              onClick={() => {
+                setAiEngine('gemini');
+                if (!apiKey) setShowKeyModal(true);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                aiEngine === 'gemini' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>🧠 Gemini Vision</span>
+            </button>
+            <button
+              onClick={() => {
+                setAiEngine('openai');
+                if (!apiKey) setShowKeyModal(true);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                aiEngine === 'openai' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>🤖 GPT-4o</span>
+            </button>
+            <button
+              onClick={() => setShowKeyModal(true)}
+              title="Configure API Key"
+              className="p-1.5 rounded-xl text-slate-400 hover:text-amber-400 transition-colors ml-1"
+            >
+              🔑
+            </button>
+          </div>
+
+          {/* Context Selector */}
+          <div className="flex items-center bg-slate-950/80 p-1.5 rounded-2xl border border-slate-800">
             <button
               onClick={() => setSessionContext('education')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
@@ -539,6 +605,61 @@ export const UploadImage: React.FC = () => {
         explanation={explainerData}
         loading={explainerLoading}
       />
+
+      {/* External Vision LLM API Key Configuration Modal */}
+      {showKeyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-700 bg-slate-900 max-w-md w-full space-y-5 shadow-2xl relative">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <span>🔑</span>
+                <span>Configure Vision LLM API Key</span>
+              </h3>
+              <button 
+                onClick={() => setShowKeyModal(false)}
+                className="text-slate-400 hover:text-white text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Enter your <strong>Google Gemini API Key</strong> or <strong>OpenAI API Key</strong> for high-accuracy multimodal emotion analysis, Action Unit extraction, and zero-shot reasoning.
+            </p>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                API Key
+              </label>
+              <input
+                type="password"
+                defaultValue={apiKey}
+                placeholder="AIzaSy... or sk-proj-..."
+                id="api-key-input"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowKeyModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const input = document.getElementById('api-key-input') as HTMLInputElement;
+                  if (input) handleSaveApiKey(input.value.trim());
+                }}
+                className="btn-primary px-5 py-2 rounded-xl text-xs font-bold"
+              >
+                Save Key
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
