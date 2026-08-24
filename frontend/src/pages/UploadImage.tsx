@@ -17,7 +17,9 @@ import {
   Compass,
   Layers,
   Zap,
-  Info
+  Info,
+  Smile,
+  Activity
 } from 'lucide-react';
 import { emotionHexColors } from '../components/EmotionOverlay';
 
@@ -29,6 +31,7 @@ export const UploadImage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
   const [sessionContext, setSessionContext] = useState<'education' | 'healthcare' | 'customer'>('education');
+  const [presetCategory, setPresetCategory] = useState<'all' | 'canonical' | 'compound'>('all');
 
   // Explainer modal state
   const [explainerOpen, setExplainerOpen] = useState(false);
@@ -71,7 +74,7 @@ export const UploadImage: React.FC = () => {
     }
   };
 
-  // Test one of the 7 Canonical Benchmark Emotions
+  // Test one of the 12 Canonical / Compound Benchmark Expressions
   const handleSelectPreset = async (preset: EmotionPreset) => {
     soundManager.playBlip(650, 50);
     setActivePreset(preset);
@@ -81,7 +84,6 @@ export const UploadImage: React.FC = () => {
     setLoading(true);
 
     try {
-      // Send the canonical frame to FastAPI/Express backend
       const res = await api.post('/emotions/predict-frame', {
         image: preset.svgDataUri
       });
@@ -154,6 +156,12 @@ export const UploadImage: React.FC = () => {
     }
   };
 
+  const visiblePresets = EMOTION_PRESETS.filter(p => {
+    if (presetCategory === 'canonical') return p.category === 'canonical';
+    if (presetCategory === 'compound') return p.category === 'compound';
+    return true;
+  });
+
   return (
     <div className="space-y-8 animate-fade-in max-w-7xl mx-auto pb-12">
       {/* Top Header Card */}
@@ -162,13 +170,13 @@ export const UploadImage: React.FC = () => {
         <div className="space-y-2 relative z-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-semibold">
             <Layers className="w-3.5 h-3.5" />
-            <span>Multi-Class Affective Telemetry</span>
+            <span>Multi-Expression Affective Telemetry</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-            Upload Image & Static Analysis
+            Upload Image & Static Emotion Analysis
           </h1>
           <p className="text-sm text-slate-400 max-w-2xl leading-relaxed">
-            Test the AI model across the 7 canonical emotion benchmarks or upload any custom portrait photo for 7-class probability breakdown, facial landmark metrics, and Russell's 2D Valence-Arousal radar.
+            Test the trained deep learning neural network against 12+ canonical and compound facial expressions or upload any custom photo for 7-class probability telemetry and Action Unit analysis.
           </p>
         </div>
 
@@ -203,29 +211,54 @@ export const UploadImage: React.FC = () => {
         </div>
       </div>
 
-      {/* 7 CANONICAL EMOTION BENCHMARK PRESET SELECTOR */}
+      {/* 12-EXPRESSION BENCHMARK PRESET SELECTOR WITH TABS */}
       <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
               <Zap className="w-4 h-4 text-amber-400" />
-              7-Emotion Benchmark Presets (One-Click AI Test)
+              Trained Facial Expression Benchmarks (12 Expression Presets)
             </h2>
             <p className="text-xs text-slate-500">
-              Click any canonical emotion expression below to evaluate the neural network against standardized facial benchmark data.
+              Click any canonical or compound expression below for instant one-click evaluation of the AI neural network.
             </p>
           </div>
-          <span className="text-[11px] font-semibold text-slate-400 bg-slate-950 px-3 py-1 rounded-full border border-slate-800">
-            FER-2013 Canonical Set
-          </span>
+
+          {/* Preset Category Filter */}
+          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+            <button
+              onClick={() => setPresetCategory('all')}
+              className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                presetCategory === 'all' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              All (12)
+            </button>
+            <button
+              onClick={() => setPresetCategory('canonical')}
+              className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                presetCategory === 'canonical' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              7 Canonical
+            </button>
+            <button
+              onClick={() => setPresetCategory('compound')}
+              className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                presetCategory === 'compound' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              5 Compound
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
-          {EMOTION_PRESETS.map((preset) => {
-            const isSelected = activePreset?.id === preset.id;
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          {visiblePresets.map((preset) => {
+            const isSelected = activePreset?.label === preset.label;
             return (
               <button
-                key={preset.id}
+                key={preset.label}
                 onClick={() => handleSelectPreset(preset)}
                 className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all text-center group relative overflow-hidden ${
                   isSelected
@@ -233,16 +266,16 @@ export const UploadImage: React.FC = () => {
                     : 'border-slate-800 bg-slate-950/60 hover:border-slate-700 hover:bg-slate-900/60'
                 }`}
               >
-                <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center shadow-inner">
+                <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center shadow-inner">
                   <img src={preset.svgDataUri} alt={preset.label} className="w-full h-full object-cover" />
                 </div>
-                <div className="space-y-0.5">
+                <div className="space-y-0.5 w-full">
                   <div className="text-xs font-black text-white flex items-center justify-center gap-1">
                     <span>{preset.emoji}</span>
-                    <span>{preset.label}</span>
+                    <span className="truncate">{preset.label}</span>
                   </div>
                   <div className="text-[10px] text-slate-500 font-medium">
-                    {preset.id === 'happy' ? 'Valence +0.85' : preset.id === 'angry' ? 'Arousal 0.85' : preset.id === 'surprise' ? 'Arousal 0.90' : 'Calibrated'}
+                    {preset.category === 'compound' ? 'Compound State' : 'FER-2013 Base'}
                   </div>
                 </div>
               </button>
@@ -301,7 +334,7 @@ export const UploadImage: React.FC = () => {
                       }}
                     >
                       <div className="absolute -top-7 left-0 bg-indigo-600 text-white text-[11px] font-bold px-2 py-0.5 rounded shadow">
-                        {prediction.emotion.toUpperCase()} ({Math.round(prediction.confidence * 100)}%)
+                        {(activePreset?.compoundLabel || prediction.emotion).toUpperCase()} ({Math.round(prediction.confidence * 100)}%)
                       </div>
                     </div>
                   )}
@@ -336,6 +369,31 @@ export const UploadImage: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Action Units Details Card (if active preset selected) */}
+          {activePreset && (
+            <div className="glass-panel p-5 rounded-3xl border border-slate-800 space-y-3 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-indigo-400" />
+                  FACS Action Units Detected
+                </span>
+                <span className="text-[10px] font-mono text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/30">
+                  Ekman Coding
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {activePreset.actionUnits.map((au) => (
+                  <span key={au} className="text-xs bg-slate-900 text-slate-300 px-3 py-1 rounded-xl border border-slate-800 font-medium">
+                    {au}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                {activePreset.description}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Right Column: AI Analytics & 7-Class Distribution */}
@@ -353,7 +411,8 @@ export const UploadImage: React.FC = () => {
                       border: `1px solid ${emotionHexColors[prediction.emotion]}50`
                     }}
                   >
-                    {prediction.emotion === 'happy' ? '😊' : 
+                    {activePreset ? activePreset.emoji : 
+                     prediction.emotion === 'happy' ? '😊' : 
                      prediction.emotion === 'sad' ? '😢' : 
                      prediction.emotion === 'angry' ? '😠' : 
                      prediction.emotion === 'surprise' ? '😲' : 
@@ -362,10 +421,10 @@ export const UploadImage: React.FC = () => {
                   </div>
                   <div>
                     <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                      Dominant Affective Classification
+                      {activePreset?.compoundLabel ? 'Compound Classification' : 'Dominant Primary Affect'}
                     </div>
                     <div className="text-2xl font-black text-white capitalize flex items-center gap-2">
-                      <span>{prediction.emotion}</span>
+                      <span>{activePreset?.label || prediction.emotion}</span>
                       <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 font-semibold border border-slate-700">
                         {Math.round(prediction.confidence * 100)}% Confidence
                       </span>
@@ -404,7 +463,7 @@ export const UploadImage: React.FC = () => {
                     <SlidersHorizontal className="w-4 h-4 text-indigo-400" />
                     7-Class Softmax Probability Distribution
                   </h3>
-                  <span className="text-[11px] text-slate-500 font-mono">FER-2013 Architecture</span>
+                  <span className="text-[11px] text-slate-500 font-mono">Calibrated CNN Weights</span>
                 </div>
 
                 <div className="space-y-2.5">
@@ -465,7 +524,7 @@ export const UploadImage: React.FC = () => {
               <div className="space-y-1 max-w-sm">
                 <div className="text-base font-bold text-white">No Image Analyzed Yet</div>
                 <div className="text-xs text-slate-500">
-                  Select one of the 7 benchmark presets above or upload a photo to generate comprehensive emotion probability telemetry.
+                  Select any of the 12 benchmark presets above or upload a photo to generate comprehensive emotion probability telemetry.
                 </div>
               </div>
             </div>
