@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { soundManager } from '../utils/audioFeedback';
 import { 
   Video, 
@@ -11,7 +12,9 @@ import {
   UserCheck,
   Sparkles,
   Zap,
-  BarChart3
+  BarChart3,
+  BookOpen,
+  ShieldCheck
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -20,25 +23,88 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }) => {
+  const { user } = useAuth();
+  const role = user?.role || 'student';
+
   const navItems = [
     { to: '/live', label: 'Live Emotion Feed', icon: Video, color: 'text-rose-400', badge: 'Real-time' },
     { to: '/upload', label: 'Upload & Classify', icon: Upload, color: 'text-indigo-400', badge: '7-Class' },
-    { to: '/dashboard', label: 'Global Analytics Hub', icon: LayoutDashboard, color: 'text-sky-400', badge: 'Multi-Tab' }
+    { 
+      to: '/dashboard', 
+      label: role === 'student' 
+        ? 'Student Dashboard' 
+        : role === 'teacher' 
+          ? 'Teacher Dashboard' 
+          : role === 'therapist' 
+            ? 'Clinical Dashboard' 
+            : role === 'agent' 
+              ? 'CSAT Dashboard' 
+              : 'Global Analytics Hub', 
+      icon: LayoutDashboard, 
+      color: 'text-sky-400', 
+      badge: role === 'admin' ? 'All-Tab' : 'Role-Locked' 
+    }
   ];
 
-  const domainItems = [
-    { to: '/domain/education', label: 'Education Analytics', icon: GraduationCap, color: 'text-emerald-400', desc: 'Engagement & Confusion' },
-    { to: '/domain/healthcare', label: 'Healthcare & Mood', icon: Stethoscope, color: 'text-purple-400', desc: 'Patient Trajectory' },
-    { to: '/domain/customer', label: 'Customer Experience', icon: Headphones, color: 'text-amber-400', desc: 'Frustration & CSAT' }
+  const allDomainItems = [
+    { 
+      to: '/domain/education', 
+      label: role === 'student' ? 'My Student Learning Hub' : 'Education Analytics', 
+      icon: role === 'student' ? GraduationCap : BookOpen, 
+      color: 'text-emerald-400', 
+      desc: role === 'student' ? 'Focus, Confusion & Study Coach' : 'Classroom Attention & Group Affect',
+      roles: ['student', 'teacher', 'admin']
+    },
+    { 
+      to: '/domain/healthcare', 
+      label: 'Healthcare & Clinical Mood', 
+      icon: Stethoscope, 
+      color: 'text-purple-400', 
+      desc: 'Patient Affect & Stability Trajectory',
+      roles: ['therapist', 'admin']
+    },
+    { 
+      to: '/domain/customer', 
+      label: 'Customer Experience (CSAT)', 
+      icon: Headphones, 
+      color: 'text-amber-400', 
+      desc: 'Live Frustration & Sentiment Alerts',
+      roles: ['agent', 'admin']
+    }
   ];
+
+  // Filter domain items according to the logged-in user's role
+  const domainItems = allDomainItems.filter(item => item.roles.includes(role));
 
   const handleNavClick = () => {
     soundManager.playBlip(640, 50);
     if (onCloseMobile) onCloseMobile();
   };
 
+  const getRoleBadge = () => {
+    switch (role) {
+      case 'student': return { label: '🎓 Student Portal', color: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' };
+      case 'teacher': return { label: '👨‍🏫 Teacher Portal', color: 'bg-sky-500/10 text-sky-300 border-sky-500/30' };
+      case 'therapist': return { label: '🩺 Clinical Portal', color: 'bg-purple-500/10 text-purple-300 border-purple-500/30' };
+      case 'agent': return { label: '🎧 CSAT Agent', color: 'bg-amber-500/10 text-amber-300 border-amber-500/30' };
+      default: return { label: '🛡️ System Admin', color: 'bg-rose-500/10 text-rose-300 border-rose-500/30' };
+    }
+  };
+
+  const roleBadge = getRoleBadge();
+
   const content = (
     <div className="space-y-6">
+      {/* Active Role Indicator Card */}
+      <div className={`p-3 rounded-2xl border ${roleBadge.color} flex items-center justify-between`}>
+        <div className="text-[11px] font-bold">
+          {roleBadge.label}
+        </div>
+        <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-slate-300">
+          Active
+        </span>
+      </div>
+
       {/* Core Studio */}
       <div>
         <div className="px-3 text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
@@ -76,7 +142,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseM
       {/* Domain Hubs */}
       <div>
         <div className="px-3 text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-          <span>Domain Hubs</span>
+          <span>{role === 'student' ? 'My Learning Hub' : role === 'admin' ? 'All Domain Hubs' : 'Specialized Hub'}</span>
           <BarChart3 className="w-3 h-3 text-indigo-400" />
         </div>
         <nav className="space-y-1.5">

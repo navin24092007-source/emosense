@@ -141,16 +141,47 @@ export const Dashboard: React.FC = () => {
   const getRoleDisplay = () => {
     const role = user?.role || 'student';
     switch (role) {
-      case 'student': return { title: 'Student', icon: GraduationCap, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' };
-      case 'teacher': return { title: 'Teacher / Instructor', icon: BookOpen, color: 'text-sky-400 bg-sky-500/10 border-sky-500/30' };
-      case 'therapist': return { title: 'Therapist / Clinician', icon: Stethoscope, color: 'text-purple-400 bg-purple-500/10 border-purple-500/30' };
-      case 'agent': return { title: 'Customer Rep (CSAT)', icon: Headphones, color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' };
-      default: return { title: 'System Admin', icon: ShieldCheck, color: 'text-rose-400 bg-rose-500/10 border-rose-500/30' };
+      case 'student': return { 
+        title: 'Student Learner Portal', 
+        heading: 'My Learning Engagement & Study Focus',
+        subheading: 'Personal affective feedback on your study focus, cognitive load, confusion index, and study coaching.',
+        icon: GraduationCap, 
+        color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' 
+      };
+      case 'teacher': return { 
+        title: 'Teacher / Instructor Portal', 
+        heading: 'Classroom Affect & Attention Telemetry',
+        subheading: 'Monitor live student engagement, group valence, and real-time confusion alerts during instructional lectures.',
+        icon: BookOpen, 
+        color: 'text-sky-400 bg-sky-500/10 border-sky-500/30' 
+      };
+      case 'therapist': return { 
+        title: 'Therapist Clinical Portal', 
+        heading: 'Patient Affect & Longitudinal Mood Stability',
+        subheading: 'Russell Valence-Arousal plane tracking, affect variability trajectory, and clinical grounding triggers.',
+        icon: Stethoscope, 
+        color: 'text-purple-400 bg-purple-500/10 border-purple-500/30' 
+      };
+      case 'agent': return { 
+        title: 'Customer Experience (CSAT) Portal', 
+        heading: 'Live Call Sentiment & Frustration Analytics',
+        subheading: 'Real-time customer agitation monitoring, net sentiment score, and risk escalation prompts.',
+        icon: Headphones, 
+        color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' 
+      };
+      default: return { 
+        title: 'System Administrator Portal', 
+        heading: 'Multi-Vertical Affective Intelligence System',
+        subheading: 'Full cross-domain oversight across Education, Clinical Therapy, and Customer Experience verticals.',
+        icon: ShieldCheck, 
+        color: 'text-rose-400 bg-rose-500/10 border-rose-500/30' 
+      };
     }
   };
 
   const roleInfo = getRoleDisplay();
   const RoleIcon = roleInfo.icon;
+  const isAdmin = user?.role === 'admin';
 
   return (
     <div className="space-y-8 animate-fade-in max-w-7xl mx-auto pb-12">
@@ -161,7 +192,7 @@ export const Dashboard: React.FC = () => {
           <div className="flex flex-wrap items-center gap-3">
             <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-bold ${roleInfo.color}`}>
               <RoleIcon className="w-3.5 h-3.5" />
-              <span>Logged In: {roleInfo.title}</span>
+              <span>{roleInfo.title}</span>
             </div>
             {user?.name && (
               <span className="text-xs text-slate-400 font-medium">
@@ -170,10 +201,10 @@ export const Dashboard: React.FC = () => {
             )}
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-            Affective Intelligence & Domain Analytics
+            {roleInfo.heading}
           </h1>
           <p className="text-sm text-slate-400 max-w-2xl leading-relaxed">
-            Multi-perspective telemetry across Education (Student & Teacher), Clinical Healthcare (Therapist), and Customer Experience (CSAT) analytics.
+            {roleInfo.subheading}
           </p>
         </div>
 
@@ -197,68 +228,91 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* 5-TAB PERSPECTIVE SWITCHER */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-slate-800/80">
-        <button
-          onClick={() => handleTabChange('global')}
-          className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
-            activeTab === 'global'
-              ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 shadow-inner'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
-          }`}
-        >
-          <LayoutDashboard className="w-4 h-4 text-indigo-400" />
-          <span>🌐 Global Overview</span>
-        </button>
+      {/* PERSPECTIVE SWITCHER: For Admin show all 5 tabs; For specific roles show active role banner or focused switcher */}
+      {isAdmin ? (
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-slate-800/80">
+          <button
+            onClick={() => handleTabChange('global')}
+            className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
+              activeTab === 'global'
+                ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 shadow-inner'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+            }`}
+          >
+            <LayoutDashboard className="w-4 h-4 text-indigo-400" />
+            <span>🌐 Global Overview</span>
+          </button>
 
-        <button
-          onClick={() => handleTabChange('student')}
-          className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
-            activeTab === 'student'
-              ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 shadow-inner'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
-          }`}
-        >
-          <GraduationCap className="w-4 h-4 text-emerald-400" />
-          <span>🎓 Student Learner Hub</span>
-        </button>
+          <button
+            onClick={() => handleTabChange('student')}
+            className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
+              activeTab === 'student'
+                ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 shadow-inner'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+            }`}
+          >
+            <GraduationCap className="w-4 h-4 text-emerald-400" />
+            <span>🎓 Student Learner Hub</span>
+          </button>
 
-        <button
-          onClick={() => handleTabChange('teacher')}
-          className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
-            activeTab === 'teacher'
-              ? 'bg-sky-600/20 text-sky-300 border border-sky-500/40 shadow-inner'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
-          }`}
-        >
-          <BookOpen className="w-4 h-4 text-sky-400" />
-          <span>👨‍🏫 Teacher Classroom Hub</span>
-        </button>
+          <button
+            onClick={() => handleTabChange('teacher')}
+            className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
+              activeTab === 'teacher'
+                ? 'bg-sky-600/20 text-sky-300 border border-sky-500/40 shadow-inner'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+            }`}
+          >
+            <BookOpen className="w-4 h-4 text-sky-400" />
+            <span>👨‍🏫 Teacher Classroom Hub</span>
+          </button>
 
-        <button
-          onClick={() => handleTabChange('healthcare')}
-          className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
-            activeTab === 'healthcare'
-              ? 'bg-purple-600/20 text-purple-300 border border-purple-500/40 shadow-inner'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
-          }`}
-        >
-          <Stethoscope className="w-4 h-4 text-purple-400" />
-          <span>🩺 Therapist Clinical Hub</span>
-        </button>
+          <button
+            onClick={() => handleTabChange('healthcare')}
+            className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
+              activeTab === 'healthcare'
+                ? 'bg-purple-600/20 text-purple-300 border border-purple-500/40 shadow-inner'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+            }`}
+          >
+            <Stethoscope className="w-4 h-4 text-purple-400" />
+            <span>🩺 Therapist Clinical Hub</span>
+          </button>
 
-        <button
-          onClick={() => handleTabChange('customer')}
-          className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
-            activeTab === 'customer'
-              ? 'bg-amber-600/20 text-amber-300 border border-amber-500/40 shadow-inner'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
-          }`}
-        >
-          <Headphones className="w-4 h-4 text-amber-400" />
-          <span>🎧 Customer Experience (CSAT)</span>
-        </button>
-      </div>
+          <button
+            onClick={() => handleTabChange('customer')}
+            className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
+              activeTab === 'customer'
+                ? 'bg-amber-600/20 text-amber-300 border border-amber-500/40 shadow-inner'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+            }`}
+          >
+            <Headphones className="w-4 h-4 text-amber-400" />
+            <span>🎧 Customer Experience (CSAT)</span>
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-900/60 border border-slate-800">
+          <div className="flex items-center gap-3">
+            <RoleIcon className={`w-5 h-5 ${roleInfo.color.split(' ')[0]}`} />
+            <div>
+              <div className="text-xs font-bold text-white capitalize">
+                {roleInfo.title}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Dashboard strictly filtered to your workspace persona
+              </div>
+            </div>
+          </div>
+
+          <Link
+            to="/login"
+            className="text-xs font-semibold text-slate-400 hover:text-white px-3 py-1.5 rounded-xl border border-slate-800 hover:border-slate-700 bg-slate-950 transition"
+          >
+            Switch Role
+          </Link>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* TAB 1: GLOBAL OVERVIEW                                                    */}

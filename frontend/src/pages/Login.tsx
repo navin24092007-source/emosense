@@ -3,29 +3,123 @@ import { useNavigate, Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../types';
-import { BrainCircuit, GraduationCap, BookOpen, Stethoscope, Headphones, ShieldCheck, Sparkles, Loader2 } from 'lucide-react';
+import { 
+  BrainCircuit, 
+  GraduationCap, 
+  BookOpen, 
+  Stethoscope, 
+  Headphones, 
+  ShieldCheck, 
+  Sparkles, 
+  Loader2,
+  ArrowRight,
+  UserCheck,
+  CheckCircle2
+} from 'lucide-react';
 
 const GOOGLE_CLIENT_ID = "15887127624-7ihrpsc97ko08itvuitooms2pbosl6tu.apps.googleusercontent.com";
+
+interface RolePersona {
+  role: UserRole;
+  title: string;
+  badge: string;
+  defaultName: string;
+  desc: string;
+  icon: any;
+  borderActive: string;
+  bgGradient: string;
+  accentColor: string;
+  features: string[];
+}
 
 export const Login: React.FC = () => {
   const { user, loginWithDemo, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [selectedRole, setSelectedRole] = useState<UserRole>('student');
   const [customName, setCustomName] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loadingRole, setLoadingRole] = useState<string | null>(null);
   const [googleLoading, setGoogleLoading] = useState(false);
 
   if (user) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  const roles: { role: UserRole; title: string; desc: string; icon: any; color: string }[] = [
-    { role: 'student', title: 'Student', desc: 'Education & Personal Learning Engagement', icon: GraduationCap, color: 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10' },
-    { role: 'teacher', title: 'Teacher / Instructor', desc: 'Classroom Confusion & Attention Analytics', icon: BookOpen, color: 'border-sky-500/40 text-sky-400 bg-sky-500/10' },
-    { role: 'therapist', title: 'Therapist / Clinician', desc: 'Patient Longitudinal Affect & Mood Recovery', icon: Stethoscope, color: 'border-purple-500/40 text-purple-400 bg-purple-500/10' },
-    { role: 'agent', title: 'Customer Experience (CSAT)', desc: 'Call Sentiment & Frustration Risk Alerts', icon: Headphones, color: 'border-amber-500/40 text-amber-400 bg-amber-500/10' },
-    { role: 'admin', title: 'System Admin', desc: 'Multi-Vertical Analytics & Global Telemetry', icon: ShieldCheck, color: 'border-rose-500/40 text-rose-400 bg-rose-500/10' }
+  const rolePersonas: RolePersona[] = [
+    { 
+      role: 'student', 
+      title: 'Student Portal', 
+      badge: 'Learner Experience',
+      defaultName: 'Alex Johnson (Student)',
+      desc: 'Personal learning engagement, confusion index, focus tracking & study coach.', 
+      icon: GraduationCap, 
+      borderActive: 'border-emerald-500 bg-emerald-950/30 text-emerald-300 ring-2 ring-emerald-500/30',
+      bgGradient: 'from-emerald-600 to-teal-700',
+      accentColor: 'text-emerald-400',
+      features: ['Personal Confusion Index', 'Cognitive Focus Peaks', 'Study Fatigue Alerts']
+    },
+    { 
+      role: 'teacher', 
+      title: 'Teacher / Instructor', 
+      badge: 'Classroom Analytics',
+      defaultName: 'Prof. Sarah Miller (Instructor)',
+      desc: 'Real-time classroom confusion alerts, group engagement & attentional metrics.', 
+      icon: BookOpen, 
+      borderActive: 'border-sky-500 bg-sky-950/30 text-sky-300 ring-2 ring-sky-500/30',
+      bgGradient: 'from-sky-600 to-indigo-700',
+      accentColor: 'text-sky-400',
+      features: ['Classroom Group Valence', 'Real-time Confusion Warning', 'Student Engagement Index']
+    },
+    { 
+      role: 'therapist', 
+      title: 'Therapist / Clinician', 
+      badge: 'Clinical Telemetry',
+      defaultName: 'Dr. Marcus Vance (Therapist)',
+      desc: 'Longitudinal affect stability, Russell Valence-Arousal & grounding triggers.', 
+      icon: Stethoscope, 
+      borderActive: 'border-purple-500 bg-purple-950/30 text-purple-300 ring-2 ring-purple-500/30',
+      bgGradient: 'from-purple-600 to-pink-700',
+      accentColor: 'text-purple-400',
+      features: ['Valence-Arousal Plane', 'Affect Volatility Index', 'Intervention Prompts']
+    },
+    { 
+      role: 'agent', 
+      title: 'Customer Experience', 
+      badge: 'CSAT & Frustration',
+      defaultName: 'Elena Rostova (CSAT Lead)',
+      desc: 'Live call agitation detection, sentiment trajectory & escalation triggers.', 
+      icon: Headphones, 
+      borderActive: 'border-amber-500 bg-amber-950/30 text-amber-300 ring-2 ring-amber-500/30',
+      bgGradient: 'from-amber-600 to-orange-700',
+      accentColor: 'text-amber-400',
+      features: ['Agitation & Frustration Risk', 'Net Sentiment Score', 'Real-time Escalation Alerts']
+    },
+    { 
+      role: 'admin', 
+      title: 'System Administrator', 
+      badge: 'Global Overview',
+      defaultName: 'System Admin',
+      desc: 'Full multi-vertical oversight, global session history & raw AI telemetry.', 
+      icon: ShieldCheck, 
+      borderActive: 'border-rose-500 bg-rose-950/30 text-rose-300 ring-2 ring-rose-500/30',
+      bgGradient: 'from-rose-600 to-red-700',
+      accentColor: 'text-rose-400',
+      features: ['All Domain Dashboards', 'Global Multi-Session Logs', 'FastAPI Microservice Control']
+    }
   ];
+
+  // Quick 1-Click Login handler
+  const handleQuickLogin = async (persona: RolePersona) => {
+    setLoadingRole(persona.role);
+    try {
+      const displayName = customName.trim() || persona.defaultName;
+      await loginWithDemo(persona.role, displayName);
+      navigate('/dashboard');
+    } catch (err) {
+      alert('Login failed. Please try again.');
+    } finally {
+      setLoadingRole(null);
+    }
+  };
 
   // Initialize Google Identity Services
   useEffect(() => {
@@ -70,23 +164,9 @@ export const Login: React.FC = () => {
     }
   }, [selectedRole, customName]);
 
-  const handleDemoSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await loginWithDemo(selectedRole, customName || undefined);
-      navigate('/dashboard');
-    } catch (err) {
-      alert('Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleGoogleSignIn = () => {
     setGoogleLoading(true);
 
-    // 1. Try Google Identity Services OAuth2 token client popup (select_account)
     if (window.google?.accounts?.oauth2) {
       try {
         const tokenClient = window.google.accounts.oauth2.initTokenClient({
@@ -126,7 +206,6 @@ export const Login: React.FC = () => {
       }
     }
 
-    // 2. Try Google Identity One-Tap Prompt
     if (window.google?.accounts?.id) {
       window.google.accounts.id.prompt((notification: any) => {
         if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
@@ -135,130 +214,154 @@ export const Login: React.FC = () => {
       });
     } else {
       setGoogleLoading(false);
-      alert('Google Sign-In is initializing. Please check your internet connection or try again in a few seconds.');
+      alert('Google Sign-In is initializing. Please check your internet connection.');
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100">
-      <div className="w-full max-w-4xl grid md:grid-cols-2 gap-8 items-center">
-        {/* Left Intro Banner */}
-        <div className="space-y-6">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/40">
-              <BrainCircuit className="w-7 h-7 text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-extrabold bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent">
-                EmoSense
-              </h1>
-              <span className="text-xs font-semibold text-indigo-400 tracking-wider uppercase">
-                AI Facial Emotion Intelligence System
-              </span>
-            </div>
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100">
+      <div className="w-full max-w-6xl space-y-8">
+        
+        {/* Top Header Banner */}
+        <div className="text-center space-y-3 max-w-2xl mx-auto">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-semibold shadow-inner">
+            <BrainCircuit className="w-4 h-4 text-indigo-400 animate-pulse" />
+            <span>EmoSense • Role-Based Affective Intelligence</span>
           </div>
-
-          <p className="text-slate-300 text-sm leading-relaxed">
-            EmoSense utilizes deep convolutional neural models and computer vision to detect micro-facial expressions in real-time, providing actionable affective analytics across Education, Healthcare, and Customer Experience.
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white">
+            Choose Your Login Portal
+          </h1>
+          <p className="text-sm text-slate-400 leading-relaxed">
+            Select your persona below. Your dashboard will automatically tailor its analytics, metrics, and tools specifically to your role.
           </p>
-
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center gap-3 text-xs text-slate-300">
-              <Sparkles className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-              <span>Real-Time Webcam WebSocket Streaming Telemetry</span>
-            </div>
-            <div className="flex items-center gap-3 text-xs text-slate-300">
-              <Sparkles className="w-4 h-4 text-purple-400 flex-shrink-0" />
-              <span>Domain-Specific Engagement & Sentiment Dashboards</span>
-            </div>
-            <div className="flex items-center gap-3 text-xs text-slate-300">
-              <Sparkles className="w-4 h-4 text-sky-400 flex-shrink-0" />
-              <span>Python FastAPI CNN / ViT Microservice Integration</span>
-            </div>
-          </div>
         </div>
 
-        {/* Right Authentication Card */}
-        <div className="glass-panel p-8 rounded-3xl border border-slate-800 shadow-2xl space-y-6">
-          <div>
-            <h2 className="text-xl font-bold text-white">Sign In to EmoSense</h2>
-            <p className="text-xs text-slate-400 mt-1">Select your workspace role to begin</p>
-          </div>
+        {/* 5 Distinct 1-Click Role Login Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {rolePersonas.map((persona) => {
+            const Icon = persona.icon;
+            const isProcessing = loadingRole === persona.role;
 
-          <form onSubmit={handleDemoSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                Select Persona & Role
-              </label>
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {roles.map((r) => {
-                  const IconComponent = r.icon;
-                  const isSelected = selectedRole === r.role;
-                  return (
-                    <div
-                      key={r.role}
-                      onClick={() => setSelectedRole(r.role)}
-                      className={`p-3 rounded-2xl border cursor-pointer transition flex items-center justify-between ${
-                        isSelected
-                          ? `${r.color} shadow-md`
-                          : 'border-slate-800 bg-slate-900/50 hover:border-slate-700 text-slate-400'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <IconComponent className="w-5 h-5 flex-shrink-0" />
-                        <div>
-                          <div className="text-xs font-bold text-slate-200">{r.title}</div>
-                          <div className="text-[10px] text-slate-400">{r.desc}</div>
-                        </div>
-                      </div>
+            return (
+              <div
+                key={persona.role}
+                className="glass-panel p-6 rounded-3xl border border-slate-800/80 bg-slate-900/60 hover:bg-slate-900/90 hover:border-slate-700 transition-all duration-300 flex flex-col justify-between space-y-5 group relative overflow-hidden shadow-xl"
+              >
+                <div className="space-y-4">
+                  {/* Top Header & Badge */}
+                  <div className="flex items-center justify-between">
+                    <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 group-hover:scale-105 transition-transform">
+                      <Icon className={`w-6 h-6 ${persona.accentColor}`} />
                     </div>
-                  );
-                })}
+                    <span className="text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full border border-slate-800 bg-slate-950/80 text-slate-400">
+                      {persona.badge}
+                    </span>
+                  </div>
+
+                  {/* Title & Description */}
+                  <div>
+                    <h3 className="text-lg font-bold text-white group-hover:text-indigo-300 transition-colors">
+                      {persona.title}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                      {persona.desc}
+                    </p>
+                  </div>
+
+                  {/* Feature Highlights */}
+                  <div className="space-y-1.5 pt-2 border-t border-slate-800/60">
+                    {persona.features.map((feat, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-[11px] text-slate-300">
+                        <CheckCircle2 className={`w-3.5 h-3.5 ${persona.accentColor} flex-shrink-0`} />
+                        <span>{feat}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 1-Click Action Button */}
+                <button
+                  type="button"
+                  disabled={loadingRole !== null || googleLoading}
+                  onClick={() => handleQuickLogin(persona)}
+                  className={`w-full py-3 rounded-2xl bg-gradient-to-r ${persona.bgGradient} font-bold text-xs text-white shadow-lg hover:opacity-95 active:scale-98 transition flex items-center justify-center gap-2 disabled:opacity-50`}
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>Entering Portal...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Login as {persona.title.split('/')[0].trim()}</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </>
+                  )}
+                </button>
+              </div>
+            );
+          })}
+
+          {/* 6th Card: Custom Name & Google OAuth Card */}
+          <div className="glass-panel p-6 rounded-3xl border border-slate-800/80 bg-slate-900/60 flex flex-col justify-between space-y-4 shadow-xl">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800">
+                  <UserCheck className="w-6 h-6 text-indigo-400" />
+                </div>
+                <span className="text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full border border-slate-800 bg-slate-950/80 text-indigo-400">
+                  Custom & Google
+                </span>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-bold text-white">Customized Login</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Sign in with your name or Google Account into any role.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Display Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Navin Kumar"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Target Role
+                </label>
+                <select
+                  value={selectedRole}
+                  onChange={(e) => setSelectedRole(e.target.value as UserRole)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-indigo-500 capitalize font-semibold"
+                >
+                  <option value="student">🎓 Student</option>
+                  <option value="teacher">👨‍🏫 Teacher / Instructor</option>
+                  <option value="therapist">🩺 Therapist / Clinician</option>
+                  <option value="agent">🎧 Customer Experience</option>
+                  <option value="admin">🛡️ System Administrator</option>
+                </select>
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                Your Display Name (Optional)
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Alex Johnson"
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || googleLoading}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 font-bold text-sm text-white shadow-lg shadow-indigo-600/30 hover:opacity-95 transition flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Entering System...</span>
-                </>
-              ) : (
-                `Enter System as ${selectedRole.toUpperCase()}`
-              )}
-            </button>
-          </form>
-
-          <div className="relative border-t border-slate-800 pt-4 text-center">
-            <span className="text-[11px] text-slate-500 uppercase tracking-wider">or sign in with OAuth 2.0</span>
-            
             <button
               type="button"
-              disabled={loading || googleLoading}
+              disabled={loadingRole !== null || googleLoading}
               onClick={handleGoogleSignIn}
-              className="mt-3 w-full py-2.5 rounded-xl border border-slate-700/80 bg-slate-800/40 hover:bg-slate-800 hover:border-slate-600 text-xs font-semibold text-slate-200 flex items-center justify-center gap-2.5 transition shadow-sm disabled:opacity-50"
+              className="w-full py-2.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-800 text-xs font-bold text-slate-200 flex items-center justify-center gap-2 transition disabled:opacity-50"
             >
               {googleLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-                  <span>Selecting Google Account...</span>
+                  <span>Connecting Google...</span>
                 </>
               ) : (
                 <>
@@ -268,13 +371,15 @@ export const Login: React.FC = () => {
                     <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
                   </svg>
-                  <span>Google OAuth Sign In</span>
+                  <span>Sign in with Google</span>
                 </>
               )}
             </button>
           </div>
         </div>
+
       </div>
     </div>
   );
 };
+
