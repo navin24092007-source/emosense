@@ -6,6 +6,8 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
+  register: (name: string, email: string, password: string, role: UserRole) => Promise<void>;
+  loginWithPassword: (email: string, password: string) => Promise<void>;
   loginWithDemo: (role?: UserRole, name?: string) => Promise<void>;
   loginWithGoogle: (
     authData: string | { token?: string; credential?: string; accessToken?: string; email?: string; name?: string; googleId?: string; role?: UserRole },
@@ -18,16 +20,13 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser]   = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('emosense_token'));
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
     const fetchProfile = async () => {
-      if (!token) {
-        setLoading(false);
-        return;
-      }
+      if (!token) { setLoading(false); return; }
       try {
         const res = await api.get('/auth/profile');
         setUser(res.data);
@@ -42,6 +41,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetchProfile();
   }, [token]);
 
+  /* ── Register (email/password → MongoDB only, no auto-login) ── */
+  const register = async (name: string, email: string, password: string, role: UserRole) => {
+    // Just hit the API to save to MongoDB — don't set user/token yet
+    // The user will manually sign in after registration
+    const res = await api.post('/auth/register', { name, email, password, role });
+    if (!res.data?.token) throw new Error('Registration failed — no token returned');
+    // Return the saved user data for confirmation but DON'T log them in automatically
+    return res.data;
+  };
+
+  /* ── Login with email + password (MongoDB) ── */
+  const loginWithPassword = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      const res = await api.post('/auth/login', { email, password });
+      const { token: newToken, user: userData } = res.data;
+      localStorage.setItem('emosense_token', newToken);
+      setToken(newToken);
+      setUser(userData);
+    } catch (err) {
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ── Demo login (legacy) ── */
   const loginWithDemo = async (role: UserRole = 'student', name?: string) => {
     setLoading(true);
     try {
@@ -51,13 +77,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(newToken);
       setUser(userData);
     } catch (err) {
-      console.error('Demo login failed:', err);
       throw err;
     } finally {
       setLoading(false);
     }
   };
 
+  /* ── Google OAuth ── */
   const loginWithGoogle = async (
     authData: string | { token?: string; credential?: string; accessToken?: string; email?: string; name?: string; googleId?: string; role?: UserRole },
     role: UserRole = 'student'
@@ -73,7 +99,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(newToken);
       setUser(userData);
     } catch (err) {
-      console.error('Google login failed:', err);
       throw err;
     } finally {
       setLoading(false);
@@ -91,13 +116,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await api.put('/auth/profile', updatedUser);
       setUser(res.data.user);
     } catch (err) {
-      console.error('Failed to update user profile:', err);
       throw err;
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, loginWithDemo, loginWithGoogle, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, token, loading, register, loginWithPassword, loginWithDemo, loginWithGoogle, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

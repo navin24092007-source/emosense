@@ -19,7 +19,9 @@ import random
 import math
 import cv2
 import numpy as np
-from typing import Tuple, Dict, List, Optional
+from typing import Tuple, Dict, List, Optional, Any
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
 
 # Ensure ai_service root is on sys.path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -357,12 +359,35 @@ def mixup_criterion(criterion: nn.Module, pred: torch.Tensor, y_a: torch.Tensor,
 # ==============================================================================
 # 6. EVALUATION METRICS (Accuracy + Per-Class Precision/Recall + Macro F1)
 # ==============================================================================
-def compute_detailed_metrics(y_true: List[int], y_pred: List[int], num_classes: int = 7) -> Dict[str, Any]:
+def compute_detailed_metrics(y_true: List[int], y_pred: List[int], num_classes: int = 7, save_cm: bool = False) -> Dict[str, Any]:
     y_true_np = np.array(y_true)
     y_pred_np = np.array(y_pred)
 
     if len(y_true_np) == 0:
         return {"accuracy": 0.0, "macro_f1": 0.0, "per_class": {}}
+    
+    if save_cm:
+        cm = confusion_matrix(y_true_np, y_pred_np, labels=list(range(num_classes)))
+        plt.figure(figsize=(10, 8))
+        plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+        plt.title('Emotion Confusion Matrix')
+        plt.colorbar()
+        tick_marks = np.arange(len(DEFAULT_EMOTION_LABELS))
+        plt.xticks(tick_marks, DEFAULT_EMOTION_LABELS, rotation=45)
+        plt.yticks(tick_marks, DEFAULT_EMOTION_LABELS)
+        plt.ylabel('Actual')
+        plt.xlabel('Predicted')
+        
+        # Add text annotations
+        thresh = cm.max() / 2.
+        for i, j in np.ndindex(cm.shape):
+            plt.text(j, i, format(cm[i, j], 'd'),
+                     horizontalalignment="center",
+                     color="white" if cm[i, j] > thresh else "black")
+                     
+        plt.tight_layout()
+        plt.savefig('confusion_matrix.png')
+        plt.close()
 
     accuracy = float(np.mean(y_true_np == y_pred_np)) * 100.0
 
@@ -524,7 +549,9 @@ def train(
                 val_targets.extend(targets.cpu().numpy())
 
         val_loss = val_loss / len(val_targets)
-        val_metrics = compute_detailed_metrics(val_targets, val_preds)
+        # Generate Confusion Matrix on the last epoch
+        save_cm = (epoch == epochs)
+        val_metrics = compute_detailed_metrics(val_targets, val_preds, save_cm=save_cm)
 
         print(
             f"Epoch [{epoch:02d}/{epochs:02d}] | "
@@ -558,6 +585,25 @@ def train(
     print(f"🎉 Training Complete! Top Validation Macro-F1: {best_macro_f1}%")
     print(f"💾 Checkpoint saved: {best_weights_path}")
     print("=" * 70)
+
+    # Export to ONNX
+    print("🚀 Exporting best model to ONNX format...")
+    model.load_state_dict(torch.load(best_weights_path))
+    model.eval()
+    dummy_input = torch.randn(1, 1, 48, 48).to(device)
+    onnx_path = best_weights_path.replace('.pth', '.onnx')
+    torch.onnx.export(
+        model, 
+        dummy_input, 
+        onnx_path, 
+        export_params=True, 
+        opset_version=11, 
+        input_names=['input'], 
+        output_names=['output'], 
+        dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
+    )
+    print(f"✅ ONNX model successfully exported to: {onnx_path}")
+
 
 
 if __name__ == "__main__":

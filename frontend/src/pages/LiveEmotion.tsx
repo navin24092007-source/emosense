@@ -19,7 +19,8 @@ import {
   Sparkles,
   Zap,
   Activity,
-  Compass
+  Compass,
+  Upload
 } from 'lucide-react';
 
 export const LiveEmotion: React.FC = () => {
@@ -147,6 +148,48 @@ export const LiveEmotion: React.FC = () => {
       }, frameInterval);
     } catch (err: any) {
       alert('Failed to start live session: ' + err.message);
+    }
+  };
+
+  // Image Upload Fallback for static testing
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64Img = event.target?.result as string;
+      
+      try {
+        setWebcamError(null);
+        // Clear previous prediction immediately
+        setPrediction(null);
+        soundManager.playSuccessChime();
+        
+        const res = await api.post('/emotions/predict-frame', {
+          frame: base64Img,
+          engine: aiEngineRef.current !== 'local' ? aiEngineRef.current : undefined
+        });
+        
+        const data = res.data;
+        if (data && data.emotion) {
+          setPrediction({
+            emotion: data.emotion,
+            confidence: data.confidence,
+            all_probs: data.all_probs
+          });
+        }
+      } catch (err: any) {
+        setWebcamError(`Image prediction failed: ${err.message}`);
+      }
+    };
+    reader.readAsDataURL(file);
+    
+    // Reset input so the same file can be uploaded again if needed
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -351,24 +394,46 @@ export const LiveEmotion: React.FC = () => {
             </button>
           </div>
 
-          {!isStreaming ? (
-            <button
-              onClick={handleStartSession}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 font-bold text-xs text-white shadow-xl shadow-emerald-600/30 hover:opacity-95 hover:scale-102 transition"
-            >
-              <Play className="w-4 h-4 fill-white" />
-              Start Live Session
-            </button>
-          ) : (
-            <button
-              onClick={handleStopSession}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 font-bold text-xs text-white shadow-xl shadow-rose-600/30 hover:opacity-95 hover:scale-102 transition"
-            >
-              <Square className="w-4 h-4 fill-white" />
-              Stop Session
-            </button>
-          )}
         </div>
+      </div>
+
+      {/* Action Buttons Row */}
+      <div className="flex flex-col sm:flex-row items-center gap-4 mt-6">
+        {!isStreaming ? (
+          <button
+            onClick={handleStartSession}
+            className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 font-bold text-sm text-white shadow-xl shadow-emerald-600/30 hover:opacity-95 hover:scale-102 transition w-full sm:w-auto"
+          >
+            <Play className="w-4 h-4 fill-white" />
+            Start Live Camera
+          </button>
+        ) : (
+          <button
+            onClick={handleStopSession}
+            className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 font-bold text-sm text-white shadow-xl shadow-rose-600/30 hover:opacity-95 hover:scale-102 transition w-full sm:w-auto"
+          >
+            <Square className="w-4 h-4 fill-white" />
+            Stop Session
+          </button>
+        )}
+
+        <div className="text-slate-500 font-medium text-xs uppercase hidden sm:block">OR</div>
+
+        {/* Static Image Upload Fallback */}
+        <input 
+          type="file" 
+          accept="image/*" 
+          ref={fileInputRef} 
+          onChange={handleImageUpload} 
+          className="hidden" 
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-slate-800 border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-800/80 font-bold text-sm text-indigo-300 shadow-xl transition w-full sm:w-auto"
+        >
+          <Upload className="w-4 h-4" />
+          Test with Image Upload
+        </button>
       </div>
 
       {webcamError && (

@@ -3,7 +3,7 @@ import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import mongoose from 'mongoose';
-import { MongoMemoryServer } from 'mongodb-memory-server';
+// mongodb-memory-server removed — using local MongoDB
 import dotenv from 'dotenv';
 
 import authRoutes from './routes/authRoutes';
@@ -55,15 +55,9 @@ const connectDB = async () => {
     await mongoose.connect(MONGODB_URI);
     console.log(`[MongoDB] Connected successfully to ${MONGODB_URI}`);
   } catch (err: any) {
-    console.warn(`[MongoDB] Local connection failed: ${err.message}. Spinning up in-memory MongoDB...`);
-    try {
-      const mongoServer = await MongoMemoryServer.create();
-      const memoryUri = mongoServer.getUri();
-      await mongoose.connect(memoryUri);
-      console.log(`[MongoDB] Connected to IN-MEMORY database at ${memoryUri}`);
-    } catch (memErr) {
-      console.error(`[MongoDB] Failed to start in-memory db:`, memErr);
-    }
+    console.error(`[MongoDB] Connection failed: ${err.message}`);
+    console.error('[MongoDB] Make sure MongoDB is running on localhost:27017');
+    process.exit(1);
   }
 };
 connectDB();

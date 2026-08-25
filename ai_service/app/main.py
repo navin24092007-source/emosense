@@ -30,6 +30,20 @@ class EmotionPredictionResponse(BaseModel):
     all_probs: Optional[Dict[str, float]] = {}
     bbox: List[int]
 
+@app.get("/")
+def root():
+    return {
+        "service": "EmoSense AI Microservice",
+        "status": "online",
+        "endpoints": {
+            "health": "/health",
+            "docs": "/docs",
+            "predict_frame": "/predict_frame",
+            "predict_image": "/predict_image"
+        },
+        "web_app": "http://localhost:5173"
+    }
+
 @app.get("/health")
 def health_check():
     return {
@@ -63,6 +77,8 @@ def predict_frame(request: FramePredictionRequest):
         result = recognizer.predict(image)
         return result
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {
             "emotion": "no_face",
             "confidence": 0.0,

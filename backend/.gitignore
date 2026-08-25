@@ -3,5 +3,3 @@ node_modules/
 .streamlit/secrets.toml
 __pycache__/
 *.pyc
-*.pth
-dist/

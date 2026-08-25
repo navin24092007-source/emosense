@@ -1,408 +1,405 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../types';
-import { 
-  BrainCircuit, 
-  GraduationCap, 
-  BookOpen, 
-  Stethoscope, 
-  Headphones, 
-  ShieldCheck, 
-  Sparkles, 
-  Loader2,
-  ArrowRight,
-  UserCheck,
-  CheckCircle2
+import {
+  BrainCircuit, Loader2, ArrowRight, Mail, Lock, Eye, EyeOff,
+  User, ChevronDown, CheckCircle2, ShieldCheck, X
 } from 'lucide-react';
 
-const GOOGLE_CLIENT_ID = "15887127624-7ihrpsc97ko08itvuitooms2pbosl6tu.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = '15887127624-7ihrpsc97ko08itvuitooms2pbosl6tu.apps.googleusercontent.com';
 
-interface RolePersona {
-  role: UserRole;
-  title: string;
-  badge: string;
-  defaultName: string;
-  desc: string;
-  icon: any;
-  borderActive: string;
-  bgGradient: string;
-  accentColor: string;
-  features: string[];
-}
+const roleOptions: { value: UserRole; label: string }[] = [
+  { value: 'student',   label: '🎓 Student' },
+  { value: 'teacher',   label: '👨‍🏫 Teacher / Instructor' },
+  { value: 'therapist', label: '🩺 Therapist / Clinician' },
+  { value: 'agent',     label: '🎧 Customer Experience' },
+  { value: 'admin',     label: '🛡️ System Administrator' },
+];
 
-export const Login: React.FC = () => {
-  const { user, loginWithDemo, loginWithGoogle, loading: authLoading } = useAuth();
-  const navigate = useNavigate();
-  const [selectedRole, setSelectedRole] = useState<UserRole>('student');
-  const [customName, setCustomName] = useState('');
-  const [loadingRole, setLoadingRole] = useState<string | null>(null);
-  const [googleLoading, setGoogleLoading] = useState(false);
+type Tab = 'signin' | 'register';
 
-  const rolePersonas: RolePersona[] = [
-    { 
-      role: 'student', 
-      title: 'Student Portal', 
-      badge: 'Learner Experience',
-      defaultName: 'Alex Johnson (Student)',
-      desc: 'Personal learning engagement, confusion index, focus tracking & study coach.', 
-      icon: GraduationCap, 
-      borderActive: 'border-emerald-500 bg-emerald-950/30 text-emerald-300 ring-2 ring-emerald-500/30',
-      bgGradient: 'from-emerald-600 to-teal-700',
-      accentColor: 'text-emerald-400',
-      features: ['Personal Confusion Index', 'Cognitive Focus Peaks', 'Study Fatigue Alerts']
-    },
-    { 
-      role: 'teacher', 
-      title: 'Teacher / Instructor', 
-      badge: 'Classroom Analytics',
-      defaultName: 'Prof. Sarah Miller (Instructor)',
-      desc: 'Real-time classroom confusion alerts, group engagement & attentional metrics.', 
-      icon: BookOpen, 
-      borderActive: 'border-sky-500 bg-sky-950/30 text-sky-300 ring-2 ring-sky-500/30',
-      bgGradient: 'from-sky-600 to-indigo-700',
-      accentColor: 'text-sky-400',
-      features: ['Classroom Group Valence', 'Real-time Confusion Warning', 'Student Engagement Index']
-    },
-    { 
-      role: 'therapist', 
-      title: 'Therapist / Clinician', 
-      badge: 'Clinical Telemetry',
-      defaultName: 'Dr. Marcus Vance (Therapist)',
-      desc: 'Longitudinal affect stability, Russell Valence-Arousal & grounding triggers.', 
-      icon: Stethoscope, 
-      borderActive: 'border-purple-500 bg-purple-950/30 text-purple-300 ring-2 ring-purple-500/30',
-      bgGradient: 'from-purple-600 to-pink-700',
-      accentColor: 'text-purple-400',
-      features: ['Valence-Arousal Plane', 'Affect Volatility Index', 'Intervention Prompts']
-    },
-    { 
-      role: 'agent', 
-      title: 'Customer Experience', 
-      badge: 'CSAT & Frustration',
-      defaultName: 'Elena Rostova (CSAT Lead)',
-      desc: 'Live call agitation detection, sentiment trajectory & escalation triggers.', 
-      icon: Headphones, 
-      borderActive: 'border-amber-500 bg-amber-950/30 text-amber-300 ring-2 ring-amber-500/30',
-      bgGradient: 'from-amber-600 to-orange-700',
-      accentColor: 'text-amber-400',
-      features: ['Agitation & Frustration Risk', 'Net Sentiment Score', 'Real-time Escalation Alerts']
-    },
-    { 
-      role: 'admin', 
-      title: 'System Administrator', 
-      badge: 'Global Overview',
-      defaultName: 'System Admin',
-      desc: 'Full multi-vertical oversight, global session history & raw AI telemetry.', 
-      icon: ShieldCheck, 
-      borderActive: 'border-rose-500 bg-rose-950/30 text-rose-300 ring-2 ring-rose-500/30',
-      bgGradient: 'from-rose-600 to-red-700',
-      accentColor: 'text-rose-400',
-      features: ['All Domain Dashboards', 'Global Multi-Session Logs', 'FastAPI Microservice Control']
-    }
-  ];
+const GoogleIcon = () => (
+  <svg className="w-4 h-4" viewBox="0 0 24 24">
+    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+  </svg>
+);
 
-  // Quick 1-Click Login handler
-  const handleQuickLogin = async (persona: RolePersona) => {
-    setLoadingRole(persona.role);
+/* ── Admin Modal ── */
+const AdminModal: React.FC<{ onClose: () => void; onSuccess: () => void }> = ({ onClose, onSuccess }) => {
+  const [pwd, setPwd]     = useState('');
+  const [show, setShow]   = useState(false);
+  const [err, setErr]     = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr('');
+    if (!pwd.trim()) { setErr('Please enter the admin password.'); return; }
+    setLoading(true);
     try {
-      const displayName = customName.trim() || persona.defaultName;
-      await loginWithDemo(persona.role, displayName);
-      navigate('/dashboard');
-    } catch (err) {
-      alert('Login failed. Please try again.');
+      await onSuccess();
+    } catch (e: any) {
+      setErr(e.response?.data?.message || 'Incorrect password. Try again.');
     } finally {
-      setLoadingRole(null);
+      setLoading(false);
     }
   };
-
-  // Initialize Google Identity Services
-  useEffect(() => {
-    if (window.google?.accounts?.id) {
-      try {
-        window.google.accounts.id.initialize({
-          client_id: GOOGLE_CLIENT_ID,
-          callback: async (response: any) => {
-            if (response.credential) {
-              setGoogleLoading(true);
-              try {
-                const base64Url = response.credential.split('.')[1];
-                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-                const jsonPayload = decodeURIComponent(
-                  atob(base64)
-                    .split('')
-                    .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-                    .join('')
-                );
-                const profile = JSON.parse(jsonPayload);
-                await loginWithGoogle({
-                  credential: response.credential,
-                  email: profile.email,
-                  name: customName || profile.name,
-                  googleId: profile.sub,
-                  role: selectedRole
-                });
-                navigate('/dashboard');
-              } catch (err: any) {
-                console.error('Google ID Token auth error:', err);
-                alert('Google Sign-In failed: ' + (err.response?.data?.message || err.message));
-              } finally {
-                setGoogleLoading(false);
-              }
-            }
-          },
-          auto_select: false
-        });
-      } catch (err) {
-        console.warn('Google GSI init notice:', err);
-      }
-    }
-  }, [selectedRole, customName]);
-
-  const handleGoogleSignIn = () => {
-    setGoogleLoading(true);
-
-    if (window.google?.accounts?.oauth2) {
-      try {
-        const tokenClient = window.google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: 'email profile openid',
-          callback: async (tokenResponse: any) => {
-            if (tokenResponse.error) {
-              console.error('Google OAuth Error:', tokenResponse);
-              setGoogleLoading(false);
-              return;
-            }
-            try {
-              const res = await axios.get('https://www.googleapis.com/oauth2/v3/userinfo', {
-                headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
-              });
-              const profile = res.data;
-              await loginWithGoogle({
-                email: profile.email,
-                name: customName || profile.name,
-                googleId: profile.sub,
-                accessToken: tokenResponse.access_token,
-                role: selectedRole
-              });
-              navigate('/dashboard');
-            } catch (err: any) {
-              console.error('Google userinfo fetch failed:', err);
-              alert('Google Sign-In failed: ' + (err.response?.data?.message || err.message));
-            } finally {
-              setGoogleLoading(false);
-            }
-          }
-        });
-        tokenClient.requestAccessToken({ prompt: 'select_account' });
-        return;
-      } catch (err) {
-        console.warn('oauth2.initTokenClient failed, fallback to id.prompt:', err);
-      }
-    }
-
-    if (window.google?.accounts?.id) {
-      window.google.accounts.id.prompt((notification: any) => {
-        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-          setGoogleLoading(false);
-        }
-      });
-    } else {
-      setGoogleLoading(false);
-      alert('Google Sign-In is initializing. Please check your internet connection.');
-    }
-  };
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 text-sm space-y-3">
-        <div className="w-10 h-10 rounded-full border-2 border-indigo-500/30 border-t-indigo-500 animate-spin" />
-        <div>Initializing EmoSense System...</div>
-      </div>
-    );
-  }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100">
-      <div className="w-full max-w-6xl space-y-8">
-        
-        {/* Active Session Notice if already signed in */}
-        {user && (
-          <div className="glass-panel p-4 rounded-2xl border border-indigo-500/40 bg-indigo-950/40 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
-            <div className="flex items-center gap-3">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-              <div className="text-xs text-slate-300">
-                Currently signed in as <strong className="text-white">{user.name}</strong> (<span className="capitalize font-semibold text-indigo-300">{user.role}</span>). Select a portal below to switch roles, or return to dashboard.
-              </div>
-            </div>
-            <button
-              onClick={() => navigate('/dashboard')}
-              className="btn-primary px-4 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap"
-            >
-              Continue to Dashboard →
-            </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-7 relative">
+        <button onClick={onClose}
+          className="absolute top-4 right-4 w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition">
+          <X className="w-4 h-4 text-slate-500" />
+        </button>
+        <div className="flex flex-col items-center gap-3 mb-6">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-500 to-indigo-600 flex items-center justify-center shadow-lg">
+            <ShieldCheck className="w-7 h-7 text-white" />
           </div>
-        )}
-
-        {/* Top Header Banner */}
-        <div className="text-center space-y-3 max-w-2xl mx-auto">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-semibold shadow-inner">
-            <BrainCircuit className="w-4 h-4 text-indigo-400 animate-pulse" />
-            <span>EmoSense • Role-Based Affective Intelligence</span>
-          </div>
-          <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white">
-            Choose Your Login Portal
-          </h1>
-          <p className="text-sm text-slate-400 leading-relaxed">
-            Select your persona below. Your dashboard will automatically tailor its analytics, metrics, and tools specifically to your role.
-          </p>
-        </div>
-
-        {/* 5 Distinct 1-Click Role Login Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {rolePersonas.map((persona) => {
-            const Icon = persona.icon;
-            const isProcessing = loadingRole === persona.role;
-
-            return (
-              <div
-                key={persona.role}
-                className="glass-panel p-6 rounded-3xl border border-slate-800/80 bg-slate-900/60 hover:bg-slate-900/90 hover:border-slate-700 transition-all duration-300 flex flex-col justify-between space-y-5 group relative overflow-hidden shadow-xl"
-              >
-                <div className="space-y-4">
-                  {/* Top Header & Badge */}
-                  <div className="flex items-center justify-between">
-                    <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 group-hover:scale-105 transition-transform">
-                      <Icon className={`w-6 h-6 ${persona.accentColor}`} />
-                    </div>
-                    <span className="text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full border border-slate-800 bg-slate-950/80 text-slate-400">
-                      {persona.badge}
-                    </span>
-                  </div>
-
-                  {/* Title & Description */}
-                  <div>
-                    <h3 className="text-lg font-bold text-white group-hover:text-indigo-300 transition-colors">
-                      {persona.title}
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                      {persona.desc}
-                    </p>
-                  </div>
-
-                  {/* Feature Highlights */}
-                  <div className="space-y-1.5 pt-2 border-t border-slate-800/60">
-                    {persona.features.map((feat, idx) => (
-                      <div key={idx} className="flex items-center gap-2 text-[11px] text-slate-300">
-                        <CheckCircle2 className={`w-3.5 h-3.5 ${persona.accentColor} flex-shrink-0`} />
-                        <span>{feat}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 1-Click Action Button */}
-                <button
-                  type="button"
-                  disabled={loadingRole !== null || googleLoading}
-                  onClick={() => handleQuickLogin(persona)}
-                  className={`w-full py-3 rounded-2xl bg-gradient-to-r ${persona.bgGradient} font-bold text-xs text-white shadow-lg hover:opacity-95 active:scale-98 transition flex items-center justify-center gap-2 disabled:opacity-50`}
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin text-white" />
-                      <span>Entering Portal...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Login as {persona.title.split('/')[0].trim()}</span>
-                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                    </>
-                  )}
-                </button>
-              </div>
-            );
-          })}
-
-          {/* 6th Card: Custom Name & Google OAuth Card */}
-          <div className="glass-panel p-6 rounded-3xl border border-slate-800/80 bg-slate-900/60 flex flex-col justify-between space-y-4 shadow-xl">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800">
-                  <UserCheck className="w-6 h-6 text-indigo-400" />
-                </div>
-                <span className="text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full border border-slate-800 bg-slate-950/80 text-indigo-400">
-                  Custom & Google
-                </span>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-bold text-white">Customized Login</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Sign in with your name or Google Account into any role.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Display Name
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Navin Kumar"
-                  value={customName}
-                  onChange={(e) => setCustomName(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Target Role
-                </label>
-                <select
-                  value={selectedRole}
-                  onChange={(e) => setSelectedRole(e.target.value as UserRole)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-indigo-500 capitalize font-semibold"
-                >
-                  <option value="student">🎓 Student</option>
-                  <option value="teacher">👨‍🏫 Teacher / Instructor</option>
-                  <option value="therapist">🩺 Therapist / Clinician</option>
-                  <option value="agent">🎧 Customer Experience</option>
-                  <option value="admin">🛡️ System Administrator</option>
-                </select>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              disabled={loadingRole !== null || googleLoading}
-              onClick={handleGoogleSignIn}
-              className="w-full py-2.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-800 text-xs font-bold text-slate-200 flex items-center justify-center gap-2 transition disabled:opacity-50"
-            >
-              {googleLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-                  <span>Connecting Google...</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-                  </svg>
-                  <span>Sign in with Google</span>
-                </>
-              )}
-            </button>
+          <div className="text-center">
+            <h2 className="text-xl font-extrabold text-slate-800">Admin Access</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Enter the administrator password to continue</p>
           </div>
         </div>
-
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Admin Password</label>
+            <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 px-3 gap-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition">
+              <Lock className="w-4 h-4 text-slate-400 shrink-0" />
+              <input id="admin-pwd" type={show ? 'text' : 'password'} placeholder="Enter admin password"
+                value={pwd} onChange={e => { setPwd(e.target.value); setErr(''); }}
+                className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" autoFocus />
+              <button type="button" onClick={() => setShow(p => !p)} className="text-slate-400 hover:text-slate-600 transition">
+                {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+          {err && <div className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2">⚠️ {err}</div>}
+          <button id="btn-admin-confirm" type="submit" disabled={loading || !pwd.trim()}
+            className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-500 to-indigo-600 text-white font-bold text-sm shadow hover:opacity-90 active:scale-[0.98] transition flex items-center justify-center gap-2 disabled:opacity-50">
+            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</> : <><ShieldCheck className="w-4 h-4" /> Login as Admin <ArrowRight className="w-4 h-4" /></>}
+          </button>
+        </form>
       </div>
     </div>
   );
 };
 
+/* ══════════════════════ MAIN LOGIN PAGE ══════════════════════ */
+export const Login: React.FC = () => {
+  const { user, register, loginWithPassword, loginWithGoogle, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+
+  const [tab, setTab] = useState<Tab>('signin');
+
+  /* Sign-In state */
+  const [siEmail,    setSiEmail]    = useState('');
+  const [siPassword, setSiPassword] = useState('');
+  const [siShowPwd,  setSiShowPwd]  = useState(false);
+  const [siLoading,  setSiLoading]  = useState(false);
+  const [siError,    setSiError]    = useState('');
+
+  /* Register state */
+  const [regName,    setRegName]    = useState('');
+  const [regRole,    setRegRole]    = useState<UserRole>('student');
+  const [regEmail,   setRegEmail]   = useState('');
+  const [regPwd,     setRegPwd]     = useState('');
+  const [regPwd2,    setRegPwd2]    = useState('');
+  const [regShowPwd, setRegShowPwd] = useState(false);
+  const [regLoading, setRegLoading] = useState(false);
+  const [regError,   setRegError]   = useState('');
+  const [regDone,    setRegDone]    = useState(false);
+
+  /* Google & Admin */
+  const [googleLoading,  setGoogleLoading]  = useState(false);
+  const [googleRole,     setGoogleRole]     = useState<UserRole>('student');
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [adminEmail,     setAdminEmail]     = useState('admin@emosense.ai');
+
+  useEffect(() => {
+    if (!authLoading && user) navigate('/dashboard', { replace: true });
+  }, [user, authLoading]);
+
+  /* Google GSI init */
+  useEffect(() => {
+    if (!window.google?.accounts?.id) return;
+    try {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: async (response: any) => {
+          if (!response.credential) return;
+          setGoogleLoading(true);
+          try {
+            const base64 = response.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+            const profile = JSON.parse(decodeURIComponent(
+              atob(base64).split('').map((c: string) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+            ));
+            await loginWithGoogle({ credential: response.credential, email: profile.email, name: profile.name, googleId: profile.sub, role: googleRole });
+            navigate('/dashboard');
+          } catch (e: any) { alert('Google error: ' + (e.response?.data?.message || e.message)); }
+          finally { setGoogleLoading(false); }
+        },
+        auto_select: false
+      });
+    } catch { /* silent */ }
+  }, [googleRole]);
+
+  const triggerGoogle = (role: UserRole) => {
+    setGoogleRole(role);
+    setGoogleLoading(true);
+    if (window.google?.accounts?.oauth2) {
+      const client = window.google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: 'email profile openid',
+        callback: async (tr: any) => {
+          if (tr.error) { setGoogleLoading(false); return; }
+          try {
+            const res = await axios.get('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${tr.access_token}` } });
+            await loginWithGoogle({ email: res.data.email, name: res.data.name, googleId: res.data.sub, accessToken: tr.access_token, role });
+            navigate('/dashboard');
+          } catch (e: any) { alert('Google error: ' + (e.response?.data?.message || e.message)); }
+          finally { setGoogleLoading(false); }
+        }
+      });
+      client.requestAccessToken({ prompt: 'select_account' });
+    } else if (window.google?.accounts?.id) {
+      window.google.accounts.id.prompt((n: any) => { if (n.isNotDisplayed() || n.isSkippedMoment()) setGoogleLoading(false); });
+    } else { setGoogleLoading(false); alert('Google Sign-In unavailable.'); }
+  };
+
+  /* ── Admin login via backend ── */
+  const handleAdminLogin = async () => {
+    await loginWithPassword(adminEmail, 'emosense@123');
+    setShowAdminModal(false);
+    navigate('/dashboard');
+  };
+
+  /* ── Sign In (backend) ── */
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSiError('');
+    if (!siEmail.trim())    { setSiError('Please enter your email.'); return; }
+    if (!siPassword.trim()) { setSiError('Please enter your password.'); return; }
+    setSiLoading(true);
+    try {
+      await loginWithPassword(siEmail.trim(), siPassword);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setSiError(err.response?.data?.message || 'Sign-in failed. Please try again.');
+    } finally {
+      setSiLoading(false);
+    }
+  };
+
+  /* ── Register (backend → MongoDB) ── */
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegError('');
+    if (!regName.trim())  { setRegError('Please enter your name.'); return; }
+    if (!regEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail)) { setRegError('Enter a valid email address.'); return; }
+    if (regPwd.length < 6) { setRegError('Password must be at least 6 characters.'); return; }
+    if (regPwd !== regPwd2) { setRegError('Passwords do not match.'); return; }
+    setRegLoading(true);
+    try {
+      await register(regName.trim(), regEmail.trim().toLowerCase(), regPwd, regRole);
+      setRegDone(true);
+      setTimeout(() => { setTab('signin'); setSiEmail(regEmail.trim()); setRegDone(false); }, 1400);
+    } catch (err: any) {
+      setRegError(err.response?.data?.message || 'Registration failed. Try again.');
+    } finally {
+      setRegLoading(false);
+    }
+  };
+
+  if (authLoading) return (
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 text-sm space-y-3">
+      <div className="w-10 h-10 rounded-full border-2 border-indigo-500/30 border-t-indigo-500 animate-spin" />
+      <div>Initializing EmoSense AI...</div>
+    </div>
+  );
+
+  return (
+    <>
+      {showAdminModal && (
+        <AdminModal
+          onClose={() => setShowAdminModal(false)}
+          onSuccess={handleAdminLogin}
+        />
+      )}
+
+      <div className="min-h-screen flex items-center justify-center p-4"
+        style={{ background: 'linear-gradient(135deg, #0ea5e9 0%, #0891b2 40%, #0e7490 100%)' }}>
+
+        <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden">
+
+          {/* Header */}
+          <div className="px-8 pt-10 pb-5 text-center">
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-400 to-indigo-600 flex items-center justify-center shadow-lg">
+                <BrainCircuit className="w-9 h-9 text-white" />
+              </div>
+            </div>
+            <h1 className="text-2xl font-extrabold text-indigo-700 tracking-tight">EmoSense.ai</h1>
+            <p className="text-slate-500 text-sm mt-1">AI-Driven Emotional Intelligence Platform</p>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex px-8 mb-5 gap-2">
+            {(['signin', 'register'] as Tab[]).map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                  tab === t ? 'bg-gradient-to-r from-green-400 to-blue-600 text-white shadow' : 'bg-slate-100 text-slate-500 hover:text-slate-700'
+                }`}>
+                {t === 'signin' ? 'Sign In' : 'Register'}
+              </button>
+            ))}
+          </div>
+
+          {/* ══ SIGN IN ══ */}
+          {tab === 'signin' && (
+            <form onSubmit={handleSignIn} className="px-8 pb-6 space-y-4">
+              {/* Google FIRST */}
+              <button id="btn-google-signin" type="button" disabled={googleLoading} onClick={() => triggerGoogle('student')}
+                className="w-full py-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-sm font-semibold text-slate-700 flex items-center justify-center gap-2.5 transition shadow-sm disabled:opacity-50">
+                {googleLoading ? <><Loader2 className="w-4 h-4 animate-spin text-indigo-500" /> Connecting...</> : <><GoogleIcon /><span>Sign in with Google</span></>}
+              </button>
+
+              <div className="flex items-center gap-3 text-xs text-slate-400">
+                <div className="flex-1 h-px bg-slate-200" /><span>or sign in with email</span><div className="flex-1 h-px bg-slate-200" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email Address</label>
+                <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 px-3 gap-2 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-100 transition">
+                  <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+                  <input id="si-email" type="email" placeholder="Enter your email"
+                    value={siEmail} onChange={e => setSiEmail(e.target.value)}
+                    className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" required />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
+                <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 px-3 gap-2 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-100 transition">
+                  <Lock className="w-4 h-4 text-slate-400 shrink-0" />
+                  <input id="si-password" type={siShowPwd ? 'text' : 'password'} placeholder="Enter your password"
+                    value={siPassword} onChange={e => setSiPassword(e.target.value)}
+                    className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" required />
+                  <button type="button" onClick={() => setSiShowPwd(p => !p)} className="text-slate-400 hover:text-slate-600 transition">
+                    {siShowPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              {siError && <div className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2">⚠️ {siError}</div>}
+              <button id="btn-signin" type="submit" disabled={siLoading}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-green-400 to-blue-600 text-white font-bold text-sm shadow-lg hover:opacity-90 active:scale-[0.98] transition flex items-center justify-center gap-2 disabled:opacity-50">
+                {siLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Signing in...</> : <><span>Sign In</span><ArrowRight className="w-4 h-4" /></>}
+              </button>
+              <p className="text-center text-xs text-slate-500">
+                No account?{' '}
+                <button type="button" onClick={() => setTab('register')} className="text-indigo-600 font-bold hover:underline">Register here →</button>
+              </p>
+            </form>
+          )}
+
+          {/* ══ REGISTER ══ */}
+          {tab === 'register' && (
+            <form onSubmit={handleRegister} className="px-8 pb-6 space-y-4">
+              {regDone ? (
+                <div className="flex flex-col items-center gap-3 py-8 text-center">
+                  <CheckCircle2 className="w-14 h-14 text-emerald-500 animate-bounce" />
+                  <p className="text-emerald-600 font-bold text-lg">Account Created!</p>
+                  <p className="text-slate-500 text-sm">Saved to database. Redirecting to Sign In...</p>
+                </div>
+              ) : (
+                <>
+                  {/* Google FIRST on Register */}
+                  <button id="btn-google-register" type="button" disabled={googleLoading} onClick={() => triggerGoogle(regRole)}
+                    className="w-full py-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-sm font-semibold text-slate-700 flex items-center justify-center gap-2.5 transition shadow-sm disabled:opacity-50">
+                    {googleLoading ? <><Loader2 className="w-4 h-4 animate-spin text-indigo-500" /> Connecting...</> : <><GoogleIcon /><span>Sign up with Google</span></>}
+                  </button>
+                  <div className="flex items-center gap-3 text-xs text-slate-400">
+                    <div className="flex-1 h-px bg-slate-200" /><span>or register with email</span><div className="flex-1 h-px bg-slate-200" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Full Name</label>
+                    <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 px-3 gap-2 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-100 transition">
+                      <User className="w-4 h-4 text-slate-400 shrink-0" />
+                      <input id="reg-name" type="text" placeholder="e.g. Navin Kumar"
+                        value={regName} onChange={e => setRegName(e.target.value)}
+                        className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" required />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Role</label>
+                    <div className="relative">
+                      <select id="reg-role" value={regRole} onChange={e => setRegRole(e.target.value as UserRole)}
+                        className="w-full pl-4 pr-9 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 transition appearance-none font-medium">
+                        {roleOptions.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email Address</label>
+                    <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 px-3 gap-2 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-100 transition">
+                      <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+                      <input id="reg-email" type="email" placeholder="you@example.com"
+                        value={regEmail} onChange={e => setRegEmail(e.target.value)}
+                        className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" required />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Create Password</label>
+                    <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 px-3 gap-2 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-100 transition">
+                      <Lock className="w-4 h-4 text-slate-400 shrink-0" />
+                      <input id="reg-pwd" type={regShowPwd ? 'text' : 'password'} placeholder="Min. 6 characters"
+                        value={regPwd} onChange={e => setRegPwd(e.target.value)}
+                        className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" required />
+                      <button type="button" onClick={() => setRegShowPwd(p => !p)} className="text-slate-400 hover:text-slate-600 transition">
+                        {regShowPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Confirm Password</label>
+                    <div className={`flex items-center border rounded-xl bg-slate-50 px-3 gap-2 transition focus-within:ring-2 ${regPwd2 && regPwd !== regPwd2 ? 'border-red-300 focus-within:ring-red-100' : 'border-slate-200 focus-within:border-cyan-400 focus-within:ring-cyan-100'}`}>
+                      <Lock className="w-4 h-4 text-slate-400 shrink-0" />
+                      <input id="reg-pwd2" type={regShowPwd ? 'text' : 'password'} placeholder="Repeat your password"
+                        value={regPwd2} onChange={e => setRegPwd2(e.target.value)}
+                        className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" required />
+                      {regPwd2 && regPwd === regPwd2 && <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />}
+                    </div>
+                  </div>
+                  {regError && <div className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2">⚠️ {regError}</div>}
+                  <button id="btn-register" type="submit" disabled={regLoading}
+                    className="w-full py-3 rounded-xl bg-gradient-to-r from-green-400 to-blue-600 text-white font-bold text-sm shadow-lg hover:opacity-90 active:scale-[0.98] transition flex items-center justify-center gap-2 disabled:opacity-50">
+                    {regLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating account...</> : <><User className="w-4 h-4" /><span>Create Account</span><ArrowRight className="w-4 h-4" /></>}
+                  </button>
+                  <p className="text-center text-xs text-slate-500">
+                    Already registered?{' '}
+                    <button type="button" onClick={() => setTab('signin')} className="text-indigo-600 font-bold hover:underline">Sign In →</button>
+                  </p>
+                </>
+              )}
+            </form>
+          )}
+
+          {/* Admin Login Button */}
+          <div className="mx-8 mb-8">
+            <button id="btn-admin-access" type="button" onClick={() => setShowAdminModal(true)}
+              className="w-full py-2.5 rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-sm font-bold flex items-center justify-center gap-2 transition group">
+              <ShieldCheck className="w-4 h-4 group-hover:scale-110 transition-transform" />
+              Admin Login
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};

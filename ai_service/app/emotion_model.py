@@ -195,8 +195,8 @@ class EmotionRecognizer:
 
     def detect_faces(self, image: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """
-        Detects faces in BGR image using multi-pass OpenCV Haar Cascade ensemble,
-        CLAHE contrast equalization, skin color segmentation, and portrait fallbacks.
+        Robust multi-pass face detection.
+        Always returns at least a center-crop region so emotion is never 'no_face'.
         """
         if image is None or image.size == 0:
             return []
@@ -204,110 +204,109 @@ class EmotionRecognizer:
         h, w = image.shape[:2]
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
 
-        # Pass 1: Standard detection on raw grayscale
-        if self.face_cascade_default and not self.face_cascade_default.empty():
-            try:
-                faces = self.face_cascade_default.detectMultiScale(
-                    gray,
-                    scaleFactor=1.1,
-                    minNeighbors=3,
-                    minSize=(30, 30)
-                )
-                if len(faces) > 0:
-                    return [tuple(f) for f in faces]
-            except Exception:
-                pass
-
-        # Pass 2: CLAHE contrast equalized pass
-        try:
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-            cl_gray = clahe.apply(gray)
-        except Exception:
-            cl_gray = gray
+        # Do NOT apply CLAHE before Haar cascades. Haar cascades are trained on raw grayscale.
+        # Extreme CLAHE creates noise on well-lit static images, causing cascades to fail.
         
-        cascades = [c for c in [self.face_cascade_default, self.face_cascade_alt, self.face_cascade_alt2] if c and not c.empty()]
-        for cascade in cascades:
-            try:
-                faces = cascade.detectMultiScale(
-                    cl_gray,
-                    scaleFactor=1.06,
-                    minNeighbors=2,
-                    minSize=(25, 25)
-                )
-                if len(faces) > 0:
-                    return [tuple(f) for f in faces]
-            except Exception:
-                pass
+        # === Pass 1: Lenient frontal face detection ===
+        for cascade in [self.face_cascade_default, self.face_cascade_alt, self.face_cascade_alt2]:
+            if cascade is None or cascade.empty():
+                continue
+            for (sf, mn, ms) in [(1.05, 1, (20, 20)), (1.08, 2, (25, 25)), (1.1, 3, (30, 30))]:
+                try:
+                    faces = cascade.detectMultiScale(gray, scaleFactor=sf,
+                                                      minNeighbors=mn, minSize=ms,
+                                                      flags=cv2.CASCADE_SCALE_IMAGE)
+                    if len(faces) > 0:
+                        return [tuple(f) for f in faces]
+                except Exception:
+                    continue
 
-        # Pass 3: Profile Face
+        # === Pass 2: Profile face (left + right mirrored) ===
         if self.face_cascade_profile and not self.face_cascade_profile.empty():
-            try:
-                faces = self.face_cascade_profile.detectMultiScale(
-                    cl_gray,
-                    scaleFactor=1.06,
-                    minNeighbors=2,
-                    minSize=(25, 25)
-                )
-                if len(faces) > 0:
-                    return [tuple(f) for f in faces]
+            for img_gray in [gray, cv2.flip(gray, 1)]:
+                try:
+                    faces = self.face_cascade_profile.detectMultiScale(
+                        img_gray, scaleFactor=1.05, minNeighbors=1, minSize=(20, 20))
+                    if len(faces) > 0:
+                        if img_gray is not gray:  # mirrored — fix x
+                            return [(w - int(f[0]) - int(f[2]), int(f[1]), int(f[2]), int(f[3])) for f in faces]
+                        return [tuple(f) for f in faces]
+                except Exception:
+                    pass
 
-                cl_flipped = cv2.flip(cl_gray, 1)
-                faces = self.face_cascade_profile.detectMultiScale(
-                    cl_flipped,
-                    scaleFactor=1.06,
-                    minNeighbors=2,
-                    minSize=(25, 25)
-                )
-                if len(faces) > 0:
-                    return [(w - int(f[0]) - int(f[2]), int(f[1]), int(f[2]), int(f[3])) for f in faces]
+        # === Pass 3: Broad YCrCb skin segmentation (all skin tones) ===
+        # Extended range covers light/dark/olive/brown skin under varied lighting
+        if len(image.shape) == 3:
+            try:
+                ycrcb = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
+                # Wide range: Cr 125-185, Cb 75-135
+                mask = cv2.inRange(ycrcb,
+                                   np.array([0, 125, 75], dtype=np.uint8),
+                                   np.array([255, 185, 135], dtype=np.uint8))
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+                mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+                mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+                valid_boxes = []
+                for c in contours:
+                    area = cv2.contourArea(c)
+                    if area > (h * w * 0.02):  # at least 2% of frame
+                        bx, by, bw, bh = cv2.boundingRect(c)
+                        aspect = bh / max(bw, 1)
+                        # More strict aspect ratio to avoid torso crops (faces are usually 1.0 to 1.5 tall)
+                        if 0.8 <= aspect <= 1.6 and by < (h * 0.85):
+                            valid_boxes.append((bx, by, bw, bh))
+
+                if valid_boxes:
+                    valid_boxes.sort(key=lambda b: b[2] * b[3], reverse=True)
+                    return [valid_boxes[0]]
             except Exception:
                 pass
 
-        # Pass 4: Skin color segmentation contour localization
+        # === Pass 4: HSV skin detection fallback ===
         if len(image.shape) == 3:
-            ycrcb = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
-            mask = cv2.inRange(ycrcb, np.array([0, 133, 77], dtype=np.uint8), np.array([255, 173, 127], dtype=np.uint8))
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            valid_boxes = []
-            for c in contours:
-                area = cv2.contourArea(c)
-                if area > (h * w * 0.04):
-                    bx, by, bw, bh = cv2.boundingRect(c)
-                    aspect = bh / max(bw, 1)
-                    if 0.6 <= aspect <= 2.2 and by < (h * 0.75):
-                        valid_boxes.append((bx, by, bw, bh))
-            
-            if valid_boxes:
-                valid_boxes.sort(key=lambda b: b[2] * b[3], reverse=True)
-                return [valid_boxes[0]]
+            try:
+                hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+                mask = cv2.inRange(hsv,
+                                   np.array([0, 20, 70], dtype=np.uint8),
+                                   np.array([25, 255, 255], dtype=np.uint8))
+                mask2 = cv2.inRange(hsv,
+                                    np.array([160, 20, 70], dtype=np.uint8),
+                                    np.array([180, 255, 255], dtype=np.uint8))
+                mask = cv2.bitwise_or(mask, mask2)
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+                mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                if contours:
+                    largest = max(contours, key=cv2.contourArea)
+                    if cv2.contourArea(largest) > (h * w * 0.015):
+                        bx, by, bw, bh = cv2.boundingRect(largest)
+                        return [(bx, by, bw, bh)]
+            except Exception:
+                pass
 
-        # Pass 5: Central Portrait Head ROI fallback
-        if w >= 80 and h >= 80:
-            cx = int(w * 0.20)
-            cy = int(h * 0.08)
-            cw = int(w * 0.60)
-            ch = int(h * 0.75)
-            return [(cx, cy, cw, ch)]
-
-        return []
+        # === Pass 5: GUARANTEED center-crop fallback ===
+        # Assumes person is roughly centered (typical selfie/webcam position)
+        cx = int(w * 0.15)
+        cy = int(h * 0.05)
+        cw = int(w * 0.70)
+        ch = int(h * 0.80)
+        return [(cx, cy, cw, ch)]
 
     def predict(self, image: np.ndarray) -> Dict[str, Any]:
         """
         Processes image, crops primary face, applies CLAHE contrast equalization,
-        and calculates 7-emotion probability distribution using hybrid SE-ResNet ensemble.
+        and calculates 7-emotion probability distribution.
+        Never returns 'no_face' — always processes the best available face region.
         """
         faces = self.detect_faces(image)
+
+        # detect_faces() always returns at least a center-crop,
+        # but add a last-resort guard here too
         if len(faces) == 0:
-            return {
-                "emotion": "neutral",
-                "confidence": 0.5,
-                "all_probs": {l: (0.7 if l == 'neutral' else 0.05) for l in self.labels},
-                "bbox": [0, 0, 0, 0]
-            }
+            h, w = image.shape[:2]
+            faces = [(int(w * 0.15), int(h * 0.05), int(w * 0.70), int(h * 0.80))]
 
         faces = sorted(faces, key=lambda b: b[2] * b[3], reverse=True)
         primary_bbox = faces[0]
@@ -325,35 +324,47 @@ class EmotionRecognizer:
 
         # Eye-Alignment & Deskewing
         if self.eye_cascade and not self.eye_cascade.empty() and face_crop.shape[0] >= 30 and face_crop.shape[1] >= 30:
-            gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY) if len(face_crop.shape) == 3 else face_crop
-            upper_crop = gray_crop[0:int(face_crop.shape[0] * 0.55), :]
-            eyes = self.eye_cascade.detectMultiScale(upper_crop, scaleFactor=1.1, minNeighbors=2, minSize=(10, 10))
-            if len(eyes) >= 2:
-                eyes = sorted(eyes, key=lambda e: e[0])
-                dx = (eyes[-1][0] + eyes[-1][2]//2) - (eyes[0][0] + eyes[0][2]//2)
-                dy = (eyes[-1][1] + eyes[-1][3]//2) - (eyes[0][1] + eyes[0][3]//2)
-                if abs(dx) > 5:
-                    angle = np.clip(float(np.degrees(np.arctan2(dy, dx))), -35.0, 35.0)
-                    if abs(angle) > 2.0:
-                        center = (face_crop.shape[1] // 2, face_crop.shape[0] // 2)
-                        rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
-                        face_crop = cv2.warpAffine(face_crop, rot_mat, (face_crop.shape[1], face_crop.shape[0]), borderMode=cv2.BORDER_REPLICATE)
+            try:
+                gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY) if len(face_crop.shape) == 3 else face_crop
+                upper_crop = gray_crop[0:int(face_crop.shape[0] * 0.55), :]
+                eyes = self.eye_cascade.detectMultiScale(upper_crop, scaleFactor=1.1, minNeighbors=2, minSize=(10, 10))
+                if len(eyes) >= 2:
+                    eyes = sorted(eyes, key=lambda e: e[0])
+                    dx = (eyes[-1][0] + eyes[-1][2]//2) - (eyes[0][0] + eyes[0][2]//2)
+                    dy = (eyes[-1][1] + eyes[-1][3]//2) - (eyes[0][1] + eyes[0][3]//2)
+                    if abs(dx) > 5:
+                        angle = np.clip(float(np.degrees(np.arctan2(dy, dx))), -35.0, 35.0)
+                        if abs(angle) > 2.0:
+                            center = (face_crop.shape[1] // 2, face_crop.shape[0] // 2)
+                            rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
+                            face_crop = cv2.warpAffine(face_crop, rot_mat, (face_crop.shape[1], face_crop.shape[0]), borderMode=cv2.BORDER_REPLICATE)
+            except Exception:
+                pass
 
-        # Apply CLAHE illumination normalization
+        # Apply Grayscale CLAHE (matching train.py exactly)
         if len(face_crop.shape) == 3:
-            lab = cv2.cvtColor(face_crop, cv2.COLOR_BGR2LAB)
-            l, a, b = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            cl = clahe.apply(l)
-            limg = cv2.merge((cl, a, b))
-            face_crop = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+            face_crop_gray = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+        else:
+            face_crop_gray = face_crop
+            
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+        face_crop_gray = clahe.apply(face_crop_gray)
+        
+        # Replicate grayscale to 3 channels so it works with any downstream RGB transforms if needed
+        # but _predict_heuristic and _predict_deep can use it directly
+        face_crop_bgr = cv2.cvtColor(face_crop_gray, cv2.COLOR_GRAY2BGR)
 
-        heuristic_probs = self._predict_heuristic(face_crop)
+        heuristic_probs = self._predict_heuristic(face_crop_bgr)
 
         if self.model_loaded:
-            deep_probs = self._predict_deep(face_crop)
-            # Ensemble fusion: 75% deep SE-ResNet + 25% geometric Action Units
-            probs = (0.75 * deep_probs) + (0.25 * heuristic_probs)
+            deep_probs = self._predict_deep(face_crop_bgr)
+            # Dynamic Ensemble fusion: 
+            # If the heuristic is extremely confident (e.g. clear open-mouth laugh), trust it more.
+            h_max = np.max(heuristic_probs)
+            weight_h = 0.6 if h_max > 0.8 else 0.3
+            weight_d = 1.0 - weight_h
+            
+            probs = (weight_d * deep_probs) + (weight_h * heuristic_probs)
             probs = probs / np.sum(probs)
         else:
             probs = heuristic_probs
@@ -397,70 +408,97 @@ class EmotionRecognizer:
         if h < 10 or w < 10:
             return np.array([0.05, 0.05, 0.05, 0.1, 0.6, 0.1, 0.05], dtype=np.float32)
 
-        # Base logits for [0: angry, 1: disgust, 2: fear, 3: happy, 4: neutral, 5: sad, 6: surprise]
-        logits = np.array([0.5, 0.3, 0.3, 0.5, 1.8, 0.5, 0.4], dtype=np.float32)
-
-        # 1. Smile Detection (AU12 Lip Corner Puller)
-        lower_face = gray[int(h * 0.5):h, :]
-        smiles = ()
-        if lower_face.shape[0] >= 20 and lower_face.shape[1] >= 20:
-            try:
-                smiles = self.smile_cascade.detectMultiScale(
-                    lower_face,
-                    scaleFactor=1.15,
-                    minNeighbors=15,
-                    minSize=(20, 20)
-                )
-            except Exception:
-                smiles = ()
+        # Base logits: [angry, disgust, fear, happy, neutral, sad, surprise]
+        logits = np.array([0.4, 0.2, 0.2, 0.5, 1.0, 0.4, 0.3], dtype=np.float32)
 
         upper_face = gray[0:int(h * 0.45), :]
+        lower_face = gray[int(h * 0.50):h, :]
+        mouth_zone = gray[int(h * 0.60):h, int(w * 0.2):int(w * 0.8)]
+
         upper_mean = float(np.mean(upper_face)) if upper_face.size > 0 else 128.0
         lower_mean = float(np.mean(lower_face)) if lower_face.size > 0 else 128.0
         brightness_ratio = lower_mean / (upper_mean + 1e-5)
+        overall_brightness = float(np.mean(gray))
+        variance = float(np.var(gray))
+        mouth_var = float(np.var(mouth_zone)) if mouth_zone.size > 0 else 0.0
 
-        is_happy = False
-        if len(smiles) > 0:
-            is_happy = True
-            logits[3] += 4.5 + min(len(smiles) * 1.2, 3.5)
-            logits[4] -= 1.5
-
-        # 2. Eye & Eyebrow Feature Analysis (AU1, AU2, AU4, AU5, AU7)
+        # ─── EYE ANALYSIS ───────────────────────────────────────────────────────
         eyes = ()
         if upper_face.shape[0] >= 12 and upper_face.shape[1] >= 12:
             try:
                 eyes = self.eye_cascade.detectMultiScale(
-                    upper_face,
-                    scaleFactor=1.1,
-                    minNeighbors=3,
-                    minSize=(12, 12)
-                )
+                    upper_face, scaleFactor=1.1, minNeighbors=3, minSize=(12, 12))
             except Exception:
                 eyes = ()
 
-        variance = float(np.var(gray))
+        is_happy = False
 
-        # Wide eyes + high variance without smile -> Surprise
-        if not is_happy and len(eyes) >= 2 and variance > 1500:
-            logits[6] += 3.8
-            logits[4] -= 1.0
+        # ─── HAPPY DETECTION ────────────────────────────────────────────────────
+        # 1a. Haar smile cascade (lenient params — catches both open & closed smiles)
+        smiles = ()
+        if lower_face.shape[0] >= 15 and lower_face.shape[1] >= 15:
+            for (sf, mn) in [(1.1, 5), (1.12, 8), (1.15, 12)]:
+                try:
+                    smiles = self.smile_cascade.detectMultiScale(
+                        lower_face, scaleFactor=sf, minNeighbors=mn, minSize=(15, 10))
+                    if len(smiles) > 0:
+                        break
+                except Exception:
+                    smiles = ()
 
-        # Dark upper face / lowered brows -> Angry (AU4 Brow Lowerer)
+        # Only trust the smile cascade if eyes are visible or it's very bright
+        if len(smiles) > 0 and (len(eyes) > 0 or overall_brightness > 130):
+            is_happy = True
+            logits[3] += 4.5 + min(len(smiles) * 1.0, 3.0)
+            logits[4] -= 1.5
+
+        # 1b. Open-mouth laugh vs Crying Baby detection:
+        if not is_happy and mouth_zone.size > 0:
+            if lower_mean > 135 and mouth_var > 1200:
+                if len(eyes) > 0 and variance < 3000: # Ensure it's not just a noisy torso
+                    # Laughing (eyes open + mouth wide)
+                    is_happy = True
+                    logits[3] += 3.0    
+                    logits[2] -= 2.0    
+                    logits[6] -= 1.5    
+                    logits[4] -= 2.0    
+                elif len(eyes) == 0:
+                    # Crying baby (eyes squeezed shut + mouth wide open)
+                    logits[5] += 5.0    # Strong Sad
+                    logits[2] += 2.0    # Some Fear/Distress
+                    logits[3] -= 3.0    # Suppress Happy
+                    logits[4] -= 2.0    # Suppress Neutral
+
+        # 1c. REMOVED aggressive brightness heuristic that biased high-quality static images to Happy
+
+
+        # ─── NON-HAPPY EMOTION SIGNALS ───────────────────────────────────────────
+        # Wide eyes + high variance WITHOUT clear happy signal → Surprise
+        if not is_happy and len(eyes) >= 2 and variance > 1800:
+            logits[6] += 3.0
+            logits[4] -= 0.8
+
+        # Fear = wide eyes + open mouth + dark image (not bright/happy)
+        if not is_happy and len(eyes) >= 2 and mouth_var > 800 and overall_brightness < 110:
+            logits[2] += 3.0
+            logits[4] -= 0.8
+
+        # Dark/lowered brows → Angry
         if not is_happy and brightness_ratio < 0.78:
-            logits[0] += 3.2
+            logits[0] += 2.8
             logits[4] -= 0.8
 
-        # Dim lower face / low contrast -> Sad (AU15 Lip Corner Depressor)
-        if not is_happy and brightness_ratio < 0.72:
-            logits[5] += 3.2
+        # Low brightness + low contrast → Sad
+        if not is_happy and brightness_ratio < 0.72 and overall_brightness < 100:
+            logits[5] += 2.8
             logits[4] -= 0.8
 
-        # Wrinkled nasal bridge / asymmetry -> Disgust (AU9 Nose Wrinkler)
+        # Nasal wrinkle → Disgust
         mid_face = gray[int(h * 0.35):int(h * 0.65), int(w * 0.3):int(w * 0.7)]
         if not is_happy and mid_face.size > 0:
             mid_var = float(np.var(mid_face))
             if mid_var > 1200 and brightness_ratio < 0.82:
-                logits[1] += 2.8
+                logits[1] += 2.2
 
         # Softmax with temperature scaling
         exp_logits = np.exp((logits - np.max(logits)) * 1.5)
