@@ -169,7 +169,7 @@ export const LiveEmotion: React.FC = () => {
     }
   };
 
-  const captureAndSendFrame = (sessionId: string) => {
+  const captureAndSendFrame = async (sessionId: string) => {
     const video = videoRef.current;
     if (!video || video.readyState < 2 || video.videoWidth === 0) return;
 
@@ -187,12 +187,41 @@ export const LiveEmotion: React.FC = () => {
     const base64Frame = canvas.toDataURL('image/jpeg', 0.6);
 
     const socket = getSocket();
-    socket.emit('frame', { 
-      sessionId, 
-      frame: base64Frame,
-      engine: aiEngineRef.current !== 'local' ? aiEngineRef.current : undefined,
-      apiKey: aiEngineRef.current !== 'local' && apiKeyRef.current ? apiKeyRef.current : undefined
-    });
+    if (socket && socket.connected) {
+      socket.emit('frame', { 
+        sessionId, 
+        frame: base64Frame,
+        engine: aiEngineRef.current !== 'local' ? aiEngineRef.current : undefined,
+        apiKey: aiEngineRef.current !== 'local' && apiKeyRef.current ? apiKeyRef.current : undefined
+      });
+    } else {
+      // Direct HTTP Fallback if socket is reconnecting
+      try {
+        const res = await api.post('/emotions/predict-frame', {
+          image: base64Frame,
+          sessionId,
+          provider: aiEngineRef.current !== 'local' ? aiEngineRef.current : undefined,
+          apiKey: aiEngineRef.current !== 'local' && apiKeyRef.current ? apiKeyRef.current : undefined
+        });
+        const data = res.data;
+        setPrediction({
+          emotion: data.emotion,
+          confidence: data.confidence,
+          all_probs: data.all_probs,
+          bbox: data.bbox || [30, 20, 180, 200],
+          timestamp: new Date().toISOString()
+        });
+        setLogs(prev => [...prev, {
+          sessionId,
+          timestamp: new Date().toISOString(),
+          emotion: data.emotion,
+          confidence: data.confidence,
+          all_probs: data.all_probs
+        }]);
+      } catch (httpErr) {
+        console.warn('HTTP frame fallback error:', httpErr);
+      }
+    }
   };
 
   const handleExplainLive = async () => {

@@ -105,11 +105,12 @@ export const setupSocketIO = (io: SocketIOServer) => {
           model_provider: prediction.model_provider
         };
 
-        // Broadcast to all clients watching this session (and reply to sender)
+        // Direct emission to active sender socket (guaranteed delivery)
+        socket.emit('emotionUpdate', updatePayload);
+
+        // Also broadcast to any other clients watching this session room
         if (sessionId) {
-          io.to(sessionId).emit('emotionUpdate', updatePayload);
-        } else {
-          socket.emit('emotionUpdate', updatePayload);
+          socket.to(sessionId).emit('emotionUpdate', updatePayload);
         }
       } catch (error: any) {
         processingLocks.set(socket.id, false);
