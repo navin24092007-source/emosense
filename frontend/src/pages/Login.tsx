@@ -33,16 +33,12 @@ interface RolePersona {
 }
 
 export const Login: React.FC = () => {
-  const { user, loginWithDemo, loginWithGoogle } = useAuth();
+  const { user, loginWithDemo, loginWithGoogle, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [selectedRole, setSelectedRole] = useState<UserRole>('student');
   const [customName, setCustomName] = useState('');
   const [loadingRole, setLoadingRole] = useState<string | null>(null);
   const [googleLoading, setGoogleLoading] = useState(false);
-
-  if (user) {
-    return <Navigate to="/dashboard" replace />;
-  }
 
   const rolePersonas: RolePersona[] = [
     { 
@@ -218,10 +214,37 @@ export const Login: React.FC = () => {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 text-sm space-y-3">
+        <div className="w-10 h-10 rounded-full border-2 border-indigo-500/30 border-t-indigo-500 animate-spin" />
+        <div>Initializing EmoSense System...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100">
       <div className="w-full max-w-6xl space-y-8">
         
+        {/* Active Session Notice if already signed in */}
+        {user && (
+          <div className="glass-panel p-4 rounded-2xl border border-indigo-500/40 bg-indigo-950/40 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-3">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <div className="text-xs text-slate-300">
+                Currently signed in as <strong className="text-white">{user.name}</strong> (<span className="capitalize font-semibold text-indigo-300">{user.role}</span>). Select a portal below to switch roles, or return to dashboard.
+              </div>
+            </div>
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="btn-primary px-4 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap"
+            >
+              Continue to Dashboard →
+            </button>
+          </div>
+        )}
+
         {/* Top Header Banner */}
         <div className="text-center space-y-3 max-w-2xl mx-auto">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-semibold shadow-inner">
