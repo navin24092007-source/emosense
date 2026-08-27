@@ -1,27 +1,47 @@
-# Dependencies
+# ----------------------
+# Node.js / Dependencies
+# ----------------------
 node_modules/
-.venv/
-env/
-venv/
+dist/
+build/
+.npm/
 
-# Python Cache
+# ----------------------
+# Python / AI Service
+# ----------------------
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
 .pytest_cache/
+.venv/
+venv/
+env/
+*.log
 
-# Build outputs
-dist/
-build/
-*.egg-info/
-
-# Environment files
+# ----------------------
+# Environment Variables
+# ----------------------
+.env
 .env.local
 .env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# IDE & OS
+# ----------------------
+# OS / Editor Files
+# ----------------------
 .DS_Store
-Thumbs.db
 .vscode/
 .idea/
+Thumbs.db
+
+# ----------------------
+# Large AI Models / Data
+# ----------------------
+*.caffemodel
+*.prototxt
+*.tflite
+*.h5
+*.pt
+*.onnx
