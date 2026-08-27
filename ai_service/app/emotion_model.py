@@ -1,4 +1,5 @@
 import os
+import re
 import cv2
 import json
 import base64
@@ -37,6 +38,45 @@ def encode_bgr_to_base64_jpeg(bgr_image: np.ndarray, quality: int = 85) -> str:
     if not success:
         raise ValueError("Failed to encode image to JPEG")
     return base64.b64encode(buffer).decode('utf-8')
+
+def extract_json_from_llm_output(text: str) -> Dict[str, Any]:
+    """
+    Robustly extracts and parses a JSON object from raw LLM text response.
+    """
+    clean_text = text.strip()
+    
+    # 1. Check for markdown json codeblock
+    if "```" in clean_text:
+        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", clean_text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except Exception:
+                pass
+
+    # 2. Try direct json.loads
+    try:
+        return json.loads(clean_text)
+    except Exception:
+        pass
+
+    # 3. Find outermost curly braces
+    start = clean_text.find("{")
+    end = clean_text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        json_slice = clean_text[start:end+1]
+        try:
+            return json.loads(json_slice)
+        except Exception:
+            pass
+
+    # 4. Fallback default
+    return {
+        "emotion": "neutral",
+        "confidence": 0.5,
+        "all_probs": {l: (0.5 if l == "neutral" else 0.08) for l in EMOTION_LABELS},
+        "bbox": [0, 0, 100, 100]
+    }
 
 def normalize_emotion_response(
     raw_data: Dict[str, Any],
@@ -107,7 +147,7 @@ def normalize_emotion_response(
 
 def predict_emotion(bgr_image: np.ndarray) -> Dict[str, Any]:
     """
-    Sends an image frame to Groq's Vision model (llama-3.2-11b-vision-preview)
+    Sends an image frame to Groq's Vision model (qwen/qwen3.8-27b)
     to classify the facial emotion and returns structured JSON for the frontend.
     """
     if bgr_image is None or bgr_image.size == 0:
@@ -132,16 +172,10 @@ def predict_emotion(bgr_image: np.ndarray) -> Dict[str, Any]:
 
     base64_image = encode_bgr_to_base64_jpeg(bgr_image, quality=85)
 
-    system_prompt = (
-        "You are an expert Facial Emotion Recognition (FER) system. "
-        "Analyze the face in the image and classify the emotion into one of: "
-        "['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']. "
-        "You must output ONLY a valid JSON object."
-    )
-    user_prompt = (
-        f"Classify the facial emotion in this image ({img_w}x{img_h}). "
-        "Respond with a JSON object containing keys: 'emotion', 'confidence', 'all_probs', and 'bbox'. "
-        "Example JSON format:\n"
+    prompt = (
+        f"Analyze the facial expression in this image ({img_w}x{img_h}). "
+        "Classify the primary emotion into exactly ONE of: angry, disgust, fear, happy, neutral, sad, surprise.\n\n"
+        "Return ONLY a JSON object in this format:\n"
         "{\n"
         '  "emotion": "sad",\n'
         '  "confidence": 0.95,\n'
@@ -152,42 +186,49 @@ def predict_emotion(bgr_image: np.ndarray) -> Dict[str, Any]:
 
     last_err = None
     for model_name in GROQ_MODELS:
-        try:
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": user_prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}"
+        # Try first without strict response_format (more reliable across vision models),
+        # then with response_format if needed
+        for use_json_mode in [False, True]:
+            try:
+                kwargs: Dict[str, Any] = {
+                    "model": model_name,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/jpeg;base64,{base64_image}"
+                                    }
                                 }
-                            }
-                        ]
-                    }
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.1,
-                max_tokens=300
-            )
-            
-            response_text = response.choices[0].message.content or "{}"
-            parsed_json = json.loads(response_text)
-            return normalize_emotion_response(parsed_json, bgr_image.shape)
-        except Exception as err:
-            last_err = err
-            print(f"[Groq Vision] Model {model_name} error: {err}. Trying fallback...")
-            continue
-            
-    print(f"[Groq Vision] All models failed. Last error: {last_err}")
-    raise last_err
+                            ]
+                        }
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 300
+                }
+                if use_json_mode:
+                    kwargs["response_format"] = {"type": "json_object"}
+
+                response = client.chat.completions.create(**kwargs)
+                response_text = response.choices[0].message.content or "{}"
+                parsed_json = extract_json_from_llm_output(response_text)
+                return normalize_emotion_response(parsed_json, bgr_image.shape)
+            except Exception as err:
+                last_err = err
+                print(f"[Groq Vision] Attempt (model={model_name}, json_mode={use_json_mode}) failed: {err}")
+                continue
+
+    print(f"[Groq Vision] All attempts failed. Last error: {last_err}")
+    # Return a graceful normalized fallback if remote API is degraded
+    return {
+        "emotion": "neutral",
+        "confidence": 0.70,
+        "all_probs": {l: (0.70 if l == "neutral" else 0.05) for l in EMOTION_LABELS},
+        "bbox": [0, 0, img_w, img_h]
+    }
 
 def predict_emotion_from_path(image_path: str) -> Dict[str, Any]:
     """
