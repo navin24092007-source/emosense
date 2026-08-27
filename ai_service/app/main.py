@@ -1,17 +1,20 @@
+import os
+import traceback
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
+from dotenv import load_dotenv
 
 from .utils import read_upload_image, decode_base64_image
-from .emotion_model import predict_emotion
+from .emotion_model import predict_emotion, EMOTION_LABELS
 
-EMOTION_LABELS = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
+load_dotenv()
 
 app = FastAPI(
     title="EmoSense AI Microservice",
-    description="Facial Emotion Recognition microservice using OpenCV and Hugging Face ViT",
-    version="1.0.0"
+    description="Facial Emotion Recognition microservice powered by Groq Cloud Vision AI",
+    version="2.0.0"
 )
 
 # Enable CORS for local backend & frontend
@@ -35,7 +38,7 @@ class EmotionPredictionResponse(BaseModel):
 @app.get("/")
 def root():
     return {
-        "service": "EmoSense AI Microservice",
+        "service": "EmoSense AI Microservice (Groq Vision)",
         "status": "online",
         "endpoints": {
             "health": "/health",
@@ -43,16 +46,18 @@ def root():
             "predict_frame": "/predict_frame",
             "predict_image": "/predict_image"
         },
-        "web_app": "http://localhost:5173"
+        "model": "llama-3.2-11b-vision-preview"
     }
 
 @app.get("/health")
 def health_check():
+    has_key = bool(os.environ.get("GROQ_API_KEY"))
     return {
         "status": "ok",
         "service": "EmoSense AI Microservice",
-        "labels": EMOTION_LABELS,
-        "model_loaded": True
+        "engine": "Groq Cloud Vision",
+        "groq_api_key_configured": has_key,
+        "labels": EMOTION_LABELS
     }
 
 @app.post("/predict_image", response_model=EmotionPredictionResponse)
@@ -62,7 +67,10 @@ async def predict_image(file: UploadFile = File(...)):
         image = read_upload_image(file_bytes)
         result = predict_emotion(image)
         return result
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=400, detail=f"Failed to process image: {str(e)}")
 
 @app.post("/predict_frame", response_model=EmotionPredictionResponse)
@@ -76,14 +84,11 @@ def predict_frame(request: FramePredictionRequest):
                 "bbox": [0, 0, 0, 0]
             }
         image = decode_base64_image(request.image_base64)
-        print(f"[Frame Processing] Decoded image shape: {image.shape}")
         result = predict_emotion(image)
         if result["emotion"] == "neutral" and result["confidence"] == 0.0:
-            # Replicate the legacy format for empty faces
             result["emotion"] = "no_face"
         return result
     except Exception as e:
-        import traceback
         traceback.print_exc()
         return {
             "emotion": "no_face",

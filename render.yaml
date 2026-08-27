@@ -1,16 +1,18 @@
 services:
   # ------------------------------------------------
-  # 1. AI Service (Python FastAPI)
+  # 1. AI Service (Python FastAPI + Groq Vision)
   # ------------------------------------------------
   - type: web
     name: emosense-ai-service
     env: docker
     rootDir: ai_service
-    plan: starter # Needs at least starter for memory (512MB RAM might be tight, Standard is recommended)
+    plan: free # Ultra-lightweight with Groq API, fits perfectly on Free tier
     healthCheckPath: /health
     envVars:
       - key: PORT
         value: "8000"
+      - key: GROQ_API_KEY
+        sync: false # Set your Groq API Key in the Render dashboard
 
   # ------------------------------------------------
   # 2. Backend API (Node.js)
@@ -27,7 +29,7 @@ services:
       - key: PORT
         value: "5000"
       - key: MONGODB_URI
-        sync: false # You must set this manually in the Render Dashboard to your MongoDB Atlas URL
+        sync: false # Set this in Render Dashboard to your MongoDB Atlas URL
       - key: JWT_SECRET
         generateValue: true # Render will automatically generate a secure 256-bit string
       - key: AI_SERVICE_URL
@@ -36,4 +38,4 @@ services:
           name: emosense-ai-service
           envVarKey: RENDER_EXTERNAL_URL
       - key: CLIENT_URL
-        sync: false # You must set this manually to your Vercel URL (e.g., https://emosense.vercel.app)
+        sync: false # Set this in Render Dashboard to your Vercel URL (e.g., https://emosense-beta.vercel.app)
