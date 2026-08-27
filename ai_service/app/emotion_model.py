@@ -11,7 +11,8 @@ from groq import Groq
 load_dotenv()
 
 EMOTION_LABELS = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
-GROQ_MODEL = "llama-3.2-11b-vision-preview"
+GROQ_MODELS = ["qwen/qwen3.8-27b", "qwen/qwen3.6-27b"]
+GROQ_MODEL = "qwen/qwen3.8-27b"
 
 _client: Optional[Groq] = None
 
@@ -131,65 +132,62 @@ def predict_emotion(bgr_image: np.ndarray) -> Dict[str, Any]:
 
     base64_image = encode_bgr_to_base64_jpeg(bgr_image, quality=85)
 
-    prompt = (
+    system_prompt = (
         "You are an expert Facial Emotion Recognition (FER) system. "
-        "Analyze the primary human face in this image and classify its facial emotion into EXACTLY ONE of these 7 categories: "
-        "['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise'].\n\n"
-        "Return ONLY a valid JSON object matching this exact schema:\n"
+        "Analyze the face in the image and classify the emotion into one of: "
+        "['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']. "
+        "You must output ONLY a valid JSON object."
+    )
+    user_prompt = (
+        f"Classify the facial emotion in this image ({img_w}x{img_h}). "
+        "Respond with a JSON object containing keys: 'emotion', 'confidence', 'all_probs', and 'bbox'. "
+        "Example JSON format:\n"
         "{\n"
-        '  "emotion": "one of: angry, disgust, fear, happy, neutral, sad, surprise",\n'
+        '  "emotion": "sad",\n'
         '  "confidence": 0.95,\n'
-        '  "all_probs": {\n'
-        '    "angry": 0.01,\n'
-        '    "disgust": 0.00,\n'
-        '    "fear": 0.01,\n'
-        '    "happy": 0.02,\n'
-        '    "neutral": 0.01,\n'
-        '    "sad": 0.95,\n'
-        '    "surprise": 0.00\n'
-        '  },\n'
-        f'  "bbox": [origin_x, origin_y, width, height] within image dimensions {img_w}x{img_h}\n'
-        "}\n\n"
-        "If no human face is visible, set emotion to 'neutral' and confidence to 0.0."
+        '  "all_probs": {"angry": 0.01, "disgust": 0.0, "fear": 0.01, "happy": 0.0, "neutral": 0.01, "sad": 0.95, "surprise": 0.02},\n'
+        f'  "bbox": [0, 0, {img_w}, {img_h}]\n'
+        "}"
     )
 
-    try:
-        response = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
+    last_err = None
+    for model_name in GROQ_MODELS:
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": user_prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                }
                             }
-                        }
-                    ]
-                }
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.1,
-            max_tokens=300
-        )
-        
-        response_text = response.choices[0].message.content or "{}"
-        parsed_json = json.loads(response_text)
-        return normalize_emotion_response(parsed_json, bgr_image.shape)
-
-    except json.JSONDecodeError as err:
-        print(f"[Groq Vision] JSON parsing error: {err}")
-        return {
-            "emotion": "neutral",
-            "confidence": 0.5,
-            "all_probs": {l: (0.5 if l == "neutral" else 0.08) for l in EMOTION_LABELS},
-            "bbox": [0, 0, img_w, img_h]
-        }
-    except Exception as err:
-        print(f"[Groq Vision] Inference error: {err}")
-        raise
+                        ]
+                    }
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.1,
+                max_tokens=300
+            )
+            
+            response_text = response.choices[0].message.content or "{}"
+            parsed_json = json.loads(response_text)
+            return normalize_emotion_response(parsed_json, bgr_image.shape)
+        except Exception as err:
+            last_err = err
+            print(f"[Groq Vision] Model {model_name} error: {err}. Trying fallback...")
+            continue
+            
+    print(f"[Groq Vision] All models failed. Last error: {last_err}")
+    raise last_err
 
 def predict_emotion_from_path(image_path: str) -> Dict[str, Any]:
     """
