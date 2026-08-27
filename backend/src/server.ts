@@ -23,13 +23,13 @@ const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 // Socket.io initialization with CORS
 const io = new SocketIOServer(server, {
   cors: {
-    origin: '*',
+    origin: process.env.NODE_ENV === 'production' ? CLIENT_URL : '*',
     methods: ['GET', 'POST']
   }
 });
 
 // Middleware
-app.use(cors({ origin: '*' }));
+app.use(cors({ origin: process.env.NODE_ENV === 'production' ? CLIENT_URL : '*' }));
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
