@@ -178,7 +178,8 @@ export const LiveEmotion: React.FC = () => {
           setPrediction({
             emotion: data.emotion,
             confidence: data.confidence,
-            all_probs: data.all_probs
+            all_probs: data.all_probs,
+            bbox: data.bbox || null
           });
         }
       } catch (err: any) {
@@ -421,6 +422,8 @@ export const LiveEmotion: React.FC = () => {
 
         {/* Static Image Upload Fallback */}
         <input 
+          id="live-fallback-upload"
+          name="live-fallback-upload"
           type="file" 
           accept="image/*" 
           ref={fileInputRef} 
@@ -601,10 +604,12 @@ export const LiveEmotion: React.FC = () => {
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">API Key</label>
               <input
+                id="live-api-key"
+                name="live-api-key"
                 type="password"
                 defaultValue={apiKey}
                 placeholder="AIzaSy... or sk-proj-..."
-                id="live-api-key-input"
+
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
               />
             </div>

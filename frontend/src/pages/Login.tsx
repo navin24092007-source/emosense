@@ -72,7 +72,7 @@ const AdminModal: React.FC<{ onClose: () => void; onSuccess: () => void }> = ({ 
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">Admin Password</label>
             <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 px-3 gap-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition">
               <Lock className="w-4 h-4 text-slate-400 shrink-0" />
-              <input id="admin-pwd" type={show ? 'text' : 'password'} placeholder="Enter admin password"
+              <input id="admin-pwd" type={show ? 'text' : 'password'} placeholder="Enter admin password" autoComplete="current-password"
                 value={pwd} onChange={e => { setPwd(e.target.value); setErr(''); }}
                 className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" autoFocus />
               <button type="button" onClick={() => setShow(p => !p)} className="text-slate-400 hover:text-slate-600 transition">
@@ -126,10 +126,13 @@ export const Login: React.FC = () => {
     if (!authLoading && user) navigate('/dashboard', { replace: true });
   }, [user, authLoading]);
 
+  const googleInitialized = React.useRef(false);
+
   /* Google GSI init */
   useEffect(() => {
-    if (!window.google?.accounts?.id) return;
+    if (!window.google?.accounts?.id || googleInitialized.current) return;
     try {
+      googleInitialized.current = true;
       window.google.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID,
         callback: async (response: any) => {
@@ -278,7 +281,7 @@ export const Login: React.FC = () => {
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email Address</label>
                 <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 px-3 gap-2 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-100 transition">
                   <Mail className="w-4 h-4 text-slate-400 shrink-0" />
-                  <input id="si-email" type="email" placeholder="Enter your email"
+                  <input id="si-email" type="email" placeholder="Enter your email" autoComplete="username"
                     value={siEmail} onChange={e => setSiEmail(e.target.value)}
                     className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" required />
                 </div>
@@ -287,7 +290,7 @@ export const Login: React.FC = () => {
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
                 <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 px-3 gap-2 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-100 transition">
                   <Lock className="w-4 h-4 text-slate-400 shrink-0" />
-                  <input id="si-password" type={siShowPwd ? 'text' : 'password'} placeholder="Enter your password"
+                  <input id="si-password" type={siShowPwd ? 'text' : 'password'} placeholder="Enter your password" autoComplete="current-password"
                     value={siPassword} onChange={e => setSiPassword(e.target.value)}
                     className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" required />
                   <button type="button" onClick={() => setSiShowPwd(p => !p)} className="text-slate-400 hover:text-slate-600 transition">
@@ -330,7 +333,7 @@ export const Login: React.FC = () => {
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Full Name</label>
                     <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 px-3 gap-2 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-100 transition">
                       <User className="w-4 h-4 text-slate-400 shrink-0" />
-                      <input id="reg-name" type="text" placeholder="e.g. Navin Kumar"
+                      <input id="reg-name" type="text" placeholder="e.g. Navin Kumar" autoComplete="name"
                         value={regName} onChange={e => setRegName(e.target.value)}
                         className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" required />
                     </div>
@@ -349,7 +352,7 @@ export const Login: React.FC = () => {
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email Address</label>
                     <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 px-3 gap-2 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-100 transition">
                       <Mail className="w-4 h-4 text-slate-400 shrink-0" />
-                      <input id="reg-email" type="email" placeholder="you@example.com"
+                      <input id="reg-email" type="email" placeholder="you@example.com" autoComplete="username"
                         value={regEmail} onChange={e => setRegEmail(e.target.value)}
                         className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" required />
                     </div>
@@ -358,7 +361,7 @@ export const Login: React.FC = () => {
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Create Password</label>
                     <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 px-3 gap-2 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-100 transition">
                       <Lock className="w-4 h-4 text-slate-400 shrink-0" />
-                      <input id="reg-pwd" type={regShowPwd ? 'text' : 'password'} placeholder="Min. 6 characters"
+                      <input id="reg-pwd" type={regShowPwd ? 'text' : 'password'} placeholder="Min. 6 characters" autoComplete="new-password"
                         value={regPwd} onChange={e => setRegPwd(e.target.value)}
                         className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" required />
                       <button type="button" onClick={() => setRegShowPwd(p => !p)} className="text-slate-400 hover:text-slate-600 transition">
@@ -370,7 +373,7 @@ export const Login: React.FC = () => {
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Confirm Password</label>
                     <div className={`flex items-center border rounded-xl bg-slate-50 px-3 gap-2 transition focus-within:ring-2 ${regPwd2 && regPwd !== regPwd2 ? 'border-red-300 focus-within:ring-red-100' : 'border-slate-200 focus-within:border-cyan-400 focus-within:ring-cyan-100'}`}>
                       <Lock className="w-4 h-4 text-slate-400 shrink-0" />
-                      <input id="reg-pwd2" type={regShowPwd ? 'text' : 'password'} placeholder="Repeat your password"
+                      <input id="reg-pwd2" type={regShowPwd ? 'text' : 'password'} placeholder="Repeat your password" autoComplete="new-password"
                         value={regPwd2} onChange={e => setRegPwd2(e.target.value)}
                         className="flex-1 py-3 text-sm text-slate-800 bg-transparent outline-none placeholder-slate-400" required />
                       {regPwd2 && regPwd === regPwd2 && <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />}

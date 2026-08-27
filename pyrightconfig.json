@@ -1,0 +1,11 @@
+{
+  "executionEnvironments": [
+    {
+      "root": "ai_service",
+      "extraPaths": ["."]
+    }
+  ],
+  "extraPaths": [
+    "ai_service"
+  ]
+}

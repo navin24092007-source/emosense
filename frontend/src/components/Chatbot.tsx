@@ -284,6 +284,8 @@ export const Chatbot: React.FC<ChatbotProps> = ({ activeEmotion, activeContext }
               {/* Input Bar */}
               <div className="p-3 bg-slate-900/95 border-t border-slate-800 flex items-center gap-2">
                 <input
+                  id="chatbot-input"
+                  name="chatbot-input"
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}

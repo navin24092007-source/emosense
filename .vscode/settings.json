@@ -1,5 +1,7 @@
 {
   "css.lint.unknownAtRules": "ignore",
   "scss.lint.unknownAtRules": "ignore",
-  "json.schemaDownload.enable": false
+  "json.schemaDownload.enable": false,
+  "python.analysis.extraPaths": ["./ai_service"],
+  "python.autoComplete.extraPaths": ["./ai_service"]
 }

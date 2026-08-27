@@ -644,6 +644,8 @@ export const Dashboard: React.FC = () => {
           </div>
 
           <input
+            id="dashboard-search"
+            name="dashboard-search"
             type="text"
             placeholder="Search session ID, context, or emotion..."
             value={searchFilter}

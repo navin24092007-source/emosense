@@ -4,11 +4,13 @@ from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 
 from .utils import read_upload_image, decode_base64_image
-from .emotion_model import recognizer, EMOTION_LABELS
+from .emotion_model import predict_emotion
+
+EMOTION_LABELS = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
 
 app = FastAPI(
     title="EmoSense AI Microservice",
-    description="Facial Emotion Recognition microservice using OpenCV and PyTorch CNN",
+    description="Facial Emotion Recognition microservice using OpenCV and Hugging Face ViT",
     version="1.0.0"
 )
 
@@ -28,7 +30,7 @@ class EmotionPredictionResponse(BaseModel):
     emotion: str
     confidence: float
     all_probs: Optional[Dict[str, float]] = {}
-    bbox: List[int]
+    bbox: Optional[List[int]] = None
 
 @app.get("/")
 def root():
@@ -50,7 +52,7 @@ def health_check():
         "status": "ok",
         "service": "EmoSense AI Microservice",
         "labels": EMOTION_LABELS,
-        "model_loaded": recognizer.model_loaded
+        "model_loaded": True
     }
 
 @app.post("/predict_image", response_model=EmotionPredictionResponse)
@@ -58,7 +60,7 @@ async def predict_image(file: UploadFile = File(...)):
     try:
         file_bytes = await file.read()
         image = read_upload_image(file_bytes)
-        result = recognizer.predict(image)
+        result = predict_emotion(image)
         return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to process image: {str(e)}")
@@ -74,7 +76,11 @@ def predict_frame(request: FramePredictionRequest):
                 "bbox": [0, 0, 0, 0]
             }
         image = decode_base64_image(request.image_base64)
-        result = recognizer.predict(image)
+        print(f"[Frame Processing] Decoded image shape: {image.shape}")
+        result = predict_emotion(image)
+        if result["emotion"] == "neutral" and result["confidence"] == 0.0:
+            # Replicate the legacy format for empty faces
+            result["emotion"] = "no_face"
         return result
     except Exception as e:
         import traceback

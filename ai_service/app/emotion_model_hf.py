@@ -4,7 +4,6 @@ import torch
 import numpy as np
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForImageClassification
-import mediapipe as mp
 
 # Global model loading at import time (not per-request)
 MODEL_NAME = "dima806/facial_emotions_image_detection"
@@ -14,46 +13,17 @@ model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
 model.eval()
 print(f"{MODEL_NAME} loaded.")
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-mp_model_path = os.path.join(current_dir, 'blaze_face_short_range.tflite')
-
-BaseOptions = mp.tasks.BaseOptions
-FaceDetector = mp.tasks.vision.FaceDetector
-FaceDetectorOptions = mp.tasks.vision.FaceDetectorOptions
-VisionRunningMode = mp.tasks.vision.RunningMode
-
-options = FaceDetectorOptions(
-    base_options=BaseOptions(model_asset_path=mp_model_path),
-    running_mode=VisionRunningMode.IMAGE,
-    min_detection_confidence=0.1)
-
-face_detector = FaceDetector.create_from_options(options)
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
 def detect_face(bgr_image):
-    original_h, original_w = bgr_image.shape[:2]
-    print(f"[Frame Processing] Decoded image shape: {original_w}x{original_h}")
-    
-    # Convert BGR to RGB for MediaPipe
-    rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_image)
-    
-    # Run MediaPipe face detection
-    detection_result = face_detector.detect(mp_image)
-    
-    if not detection_result.detections:
-        print("[Face Detection] Detected 0 faces in frame.")
+    gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+    if len(faces) == 0:
         return None
-        
-    print(f"[Face Detection] Detected {len(detection_result.detections)} faces via MediaPipe.")
     
-    # Sort detections by size (width * height) and pick the largest one
-    detections = detection_result.detections
-    detections.sort(key=lambda d: d.bounding_box.width * d.bounding_box.height, reverse=True)
-    
-    bbox = detections[0].bounding_box
-    return (bbox.origin_x, bbox.origin_y, bbox.width, bbox.height)
-    
-
+    # Return largest face
+    faces = sorted(faces, key=lambda b: b[2] * b[3], reverse=True)
+    return faces[0]
 
 def predict_emotion(bgr_image):
     face_bbox = detect_face(bgr_image)
@@ -67,13 +37,12 @@ def predict_emotion(bgr_image):
         }
         
     x, y, w, h = face_bbox
-    # Expand crop significantly for ViT models (which expect full head context)
-    padding_x = int(w * 0.3)
-    padding_top = int(h * 0.4)    # More padding on top for forehead/hair
-    padding_bottom = int(h * 0.2) # Some padding on bottom for chin
+    # Expand crop slightly
+    padding_x = int(w * 0.1)
+    padding_y = int(h * 0.1)
     
-    y1 = max(0, y - padding_top)
-    y2 = min(bgr_image.shape[0], y + h + padding_bottom)
+    y1 = max(0, y - padding_y)
+    y2 = min(bgr_image.shape[0], y + h + padding_y)
     x1 = max(0, x - padding_x)
     x2 = min(bgr_image.shape[1], x + w + padding_x)
     

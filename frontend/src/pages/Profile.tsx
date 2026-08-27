@@ -78,6 +78,8 @@ export const Profile: React.FC = () => {
                 Display Name
               </label>
               <input
+                id="profile-name"
+                name="profile-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -88,7 +90,7 @@ export const Profile: React.FC = () => {
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-2">
                 Active System Role
-                <Shield className="w-3 h-3 text-amber-500" title="Roles are managed by Administrators" />
+                <span title="Roles are managed by Administrators"><Shield className="w-3 h-3 text-amber-500" /></span>
               </label>
               <select
                 value={role}
@@ -118,6 +120,8 @@ export const Profile: React.FC = () => {
                 </label>
                 <div className="flex items-center gap-2">
                   <input
+                    id="profile-auto-delete-days"
+                    name="profile-auto-delete-days"
                     type="number"
                     min="1"
                     max="365"

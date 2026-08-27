@@ -1,7 +1,10 @@
 import axios from 'axios';
 import FormData from 'form-data';
+import http from 'http';
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 10 });
 
 export interface EmotionPredictionResult {
   emotion: string;
@@ -18,7 +21,10 @@ export const predictImageFromFile = async (fileBuffer: Buffer, filename: string,
     const response = await axios.post<EmotionPredictionResult>(
       `${AI_SERVICE_URL}/predict_image`,
       formData,
-      { headers: formData.getHeaders() }
+      { 
+        headers: formData.getHeaders(),
+        httpAgent
+      }
     );
     return response.data;
   } catch (error: any) {
@@ -32,7 +38,10 @@ export const predictFrameFromBase64 = async (base64Image: string): Promise<Emoti
     const response = await axios.post<EmotionPredictionResult>(
       `${AI_SERVICE_URL}/predict_frame`,
       { image_base64: base64Image },
-      { headers: { 'Content-Type': 'application/json' } }
+      { 
+        headers: { 'Content-Type': 'application/json' },
+        httpAgent
+      }
     );
     return response.data;
   } catch (error: any) {

@@ -29,6 +29,7 @@ export const UploadImage: React.FC = () => {
   const [activePreset, setActivePreset] = useState<EmotionPreset | null>(null);
   const [prediction, setPrediction] = useState<EmotionPrediction | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
   const [sessionContext, setSessionContext] = useState<'education' | 'healthcare' | 'customer'>('education');
   const [presetCategory, setPresetCategory] = useState<'all' | 'canonical' | 'compound'>('all');
@@ -62,11 +63,11 @@ export const UploadImage: React.FC = () => {
     }
   };
 
-  // Run AI prediction on custom uploaded file
   const handleUpload = async () => {
     if (!selectedFile) return;
     setLoading(true);
     setSavedSuccess(false);
+    setError(null);
     soundManager.playBlip(620, 60);
 
     try {
@@ -87,7 +88,7 @@ export const UploadImage: React.FC = () => {
       soundManager.playSuccessChime();
       setPrediction(res.data);
     } catch (err: any) {
-      alert('Prediction error: ' + err.message);
+      setError(err.message || 'An unknown error occurred during prediction.');
     } finally {
       setLoading(false);
     }
@@ -100,6 +101,7 @@ export const UploadImage: React.FC = () => {
     setSelectedFile(null);
     setPreviewUrl(preset.svgDataUri);
     setSavedSuccess(false);
+    setError(null);
     setLoading(true);
 
     try {
@@ -113,27 +115,8 @@ export const UploadImage: React.FC = () => {
 
       soundManager.playSuccessChime();
       setPrediction(res.data);
-    } catch (err) {
-      // Robust simulated prediction calibrated for the canonical preset
-      const simulatedProbs: Record<EmotionType, number> = {
-        happy: 0.01,
-        sad: 0.01,
-        angry: 0.01,
-        surprise: 0.01,
-        fear: 0.01,
-        disgust: 0.01,
-        neutral: 0.01
-      };
-      simulatedProbs[preset.id] = 0.94;
-      simulatedProbs['neutral'] = 0.04;
-
-      setPrediction({
-        emotion: preset.id,
-        confidence: 0.94,
-        all_probs: simulatedProbs,
-        bbox: [50, 45, 200, 210]
-      });
-      soundManager.playSuccessChime();
+    } catch (err: any) {
+      setError(err.message || 'An unknown error occurred while analyzing the preset.');
     } finally {
       setLoading(false);
     }
@@ -373,6 +356,8 @@ export const UploadImage: React.FC = () => {
                   Supports JPG, PNG, WEBP, and JPEG formats (high resolution recommended)
                 </span>
                 <input 
+                  id="upload-file-input"
+                  name="upload-file-input"
                   type="file" 
                   accept="image/*" 
                   onChange={handleFileChange} 
@@ -406,9 +391,25 @@ export const UploadImage: React.FC = () => {
                   )}
 
                   {loading && (
-                    <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center text-indigo-400 gap-3">
+                    <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center text-indigo-400 gap-3 z-10">
                       <RefreshCw className="w-8 h-8 animate-spin" />
                       <span className="text-xs font-bold tracking-wider uppercase">Running Neural Inference...</span>
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center text-rose-400 gap-3 z-10 p-6 text-center">
+                      <div className="w-12 h-12 rounded-2xl bg-rose-500/20 flex items-center justify-center border border-rose-500/30">
+                        <span className="text-xl">⚠️</span>
+                      </div>
+                      <span className="text-sm font-bold tracking-wider uppercase">Inference Failed</span>
+                      <p className="text-xs text-rose-300 max-w-xs leading-relaxed">{error}</p>
+                      <button 
+                        onClick={() => setError(null)}
+                        className="mt-2 px-4 py-2 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/50 rounded-xl text-xs font-bold text-white transition-colors"
+                      >
+                        Dismiss Error
+                      </button>
                     </div>
                   )}
                 </div>
@@ -429,7 +430,7 @@ export const UploadImage: React.FC = () => {
                   <label className="btn-secondary py-3 px-4 rounded-xl flex items-center gap-2 text-xs font-bold cursor-pointer hover:bg-slate-800 transition-colors">
                     <Upload className="w-4 h-4" />
                     <span>Upload Different Image</span>
-                    <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                    <input id="upload-file-input-alt" name="upload-file-input-alt" type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
                   </label>
                 </div>
               </div>
@@ -632,6 +633,7 @@ export const UploadImage: React.FC = () => {
                 API Key
               </label>
               <input
+                name="api-key-input"
                 type="password"
                 defaultValue={apiKey}
                 placeholder="AIzaSy... or sk-proj-..."
