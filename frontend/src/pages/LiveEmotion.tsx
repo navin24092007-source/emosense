@@ -182,8 +182,8 @@ export const LiveEmotion: React.FC = () => {
       const socket = getSocket();
       socket.emit('startSession', { sessionId: session._id });
 
-      // Adaptive frame rate: 300ms for local PyTorch, 2500ms for external LLM (API latency)
-      const frameInterval = aiEngine === 'local' ? 300 : 2500;
+      // Adaptive frame rate: 800ms for cloud Groq Vision, 2500ms for heavy multimodal LLMs
+      const frameInterval = aiEngine === 'local' ? 800 : 2500;
       intervalRef.current = setInterval(() => {
         captureAndSendFrame(session._id);
       }, frameInterval);

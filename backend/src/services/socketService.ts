@@ -25,26 +25,21 @@ export const setupSocketIO = (io: SocketIOServer) => {
       const { sessionId, frame, engine, apiKey } = data;
       if (!frame) return;
 
-      // If using Gemini/OpenAI, skip frame if a previous call is still in-flight
-      const useExternalLLM = engine === 'gemini' || engine === 'openai';
-      if (useExternalLLM && processingLocks.get(socket.id)) {
-        return; // Drop this frame — previous Gemini call still pending
+      // Drop frame if a previous inference is already in-flight for this client
+      if (processingLocks.get(socket.id)) {
+        return;
       }
 
-      console.log(`[Socket.io] Frame for session ${sessionId} (engine: ${engine || 'local'}, size: ${frame.length})`);
+      processingLocks.set(socket.id, true);
 
       try {
-        if (useExternalLLM) {
-          processingLocks.set(socket.id, true);
-        }
-
+        const useExternalLLM = engine === 'gemini' || engine === 'openai';
         let prediction: any;
 
         if (useExternalLLM) {
           const resolvedKey = apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
           if (!resolvedKey) {
             socket.emit('emotionError', { message: 'No API key configured for external Vision LLM' });
-            processingLocks.set(socket.id, false);
             return;
           }
 
@@ -70,10 +65,8 @@ export const setupSocketIO = (io: SocketIOServer) => {
             console.warn(`[Socket.io] LLM Vision failed, falling back to local: ${llmErr.message}`);
             prediction = await predictFrameFromBase64(frame);
           }
-
-          processingLocks.set(socket.id, false);
         } else {
-          // Default: use local PyTorch microservice
+          // Default: use AI microservice (Groq Vision)
           prediction = await predictFrameFromBase64(frame);
         }
 
@@ -113,8 +106,9 @@ export const setupSocketIO = (io: SocketIOServer) => {
           socket.to(sessionId).emit('emotionUpdate', updatePayload);
         }
       } catch (error: any) {
-        processingLocks.set(socket.id, false);
         socket.emit('emotionError', { message: 'Frame analysis failed', error: error.message });
+      } finally {
+        processingLocks.set(socket.id, false);
       }
     });
 
