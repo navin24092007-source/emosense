@@ -101,28 +101,68 @@ export const LiveEmotion: React.FC = () => {
     };
   }, []);
 
-  // Request Webcam Stream
+  // Request Webcam Stream with multi-tier fallback and clean track release
   const startWebcam = async () => {
+    // 1. Ensure any previous stream tracks are completely stopped
+    stopWebcam();
+    setWebcamError(null);
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      const unsupportedMsg = 'Camera API (getUserMedia) is not supported in this browser or context.';
+      setWebcamError(unsupportedMsg);
+      throw new Error(unsupportedMsg);
+    }
+
+    let stream: MediaStream | null = null;
+
+    // Tier 1: Try with ideal resolution and front facing mode
     try {
-      setWebcamError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
         audio: false
       });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+    } catch (err1: any) {
+      console.warn('Initial camera constraint failed, retrying with basic video constraint...', err1);
+      // Tier 2: Fallback to basic video constraint if specific resolution or facingMode is locked
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      } catch (err2: any) {
+        let msg = 'Unable to access webcam.';
+        if (err2.name === 'NotReadableError' || err2.message?.includes('Device in use')) {
+          msg = 'Webcam is currently in use by another application or browser tab. Please close other apps/tabs using the camera and click "Start Live Camera" again.';
+        } else if (err2.name === 'NotAllowedError' || err2.name === 'PermissionDeniedError') {
+          msg = 'Camera permission was denied. Please click the lock/settings icon in your browser address bar and allow camera access.';
+        } else if (err2.name === 'NotFoundError' || err2.name === 'DevicesNotFoundError') {
+          msg = 'No webcam device found on your system. You can test emotion detection using "Test with Image Upload".';
+        } else {
+          msg = `Unable to access webcam: ${err2.message || err2.name || 'Unknown error'}.`;
+        }
+        setWebcamError(msg);
+        throw new Error(msg);
       }
-    } catch (err: any) {
-      console.error('Webcam error:', err);
-      setWebcamError(`Unable to access webcam: ${err.message || err.name || 'Unknown error'}. Please check permissions.`);
+    }
+
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+      try {
+        await videoRef.current.play();
+      } catch (playErr) {
+        console.warn('Video element play() was delayed:', playErr);
+      }
     }
   };
 
   const stopWebcam = () => {
     if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach((track) => track.stop());
+      try {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach((track) => {
+          track.stop();
+          track.enabled = false;
+        });
+      } catch (e) {
+        console.warn('Error stopping stream tracks:', e);
+      }
       videoRef.current.srcObject = null;
     }
   };
@@ -130,8 +170,9 @@ export const LiveEmotion: React.FC = () => {
   // Start Session & Frame Broadcast
   const handleStartSession = async () => {
     try {
-      soundManager.playSuccessChime();
+      setWebcamError(null);
       await startWebcam();
+      soundManager.playSuccessChime();
       const res = await api.post('/sessions', { context });
       const session = res.data;
       setActiveSessionId(session._id);
@@ -147,7 +188,9 @@ export const LiveEmotion: React.FC = () => {
         captureAndSendFrame(session._id);
       }, frameInterval);
     } catch (err: any) {
-      alert('Failed to start live session: ' + err.message);
+      console.error('Failed to start live session:', err);
+      stopWebcam();
+      setIsStreaming(false);
     }
   };
 
