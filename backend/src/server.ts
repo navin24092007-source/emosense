@@ -16,6 +16,9 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
+// Enable trust proxy for Render / Cloud reverse proxies
+app.set('trust proxy', 1);
+
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/emosense';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
