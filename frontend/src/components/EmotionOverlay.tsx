@@ -44,24 +44,33 @@ export const EmotionOverlay: React.FC<EmotionOverlayProps> = ({ prediction, vide
       if (w > 0 && h > 0) {
         const color = emotionColors[prediction.emotion]?.bar || '#6366f1';
 
-        // Draw glowing bounding box
+        // Accurately scale coordinates to match the rendered video canvas
+        const scaleX = (x <= 1 && w <= 1) ? canvas.width : (canvas.width > 320 && w <= 320 ? canvas.width / 320 : 1);
+        const scaleY = (y <= 1 && h <= 1) ? canvas.height : (canvas.height > 240 && h <= 240 ? canvas.height / 240 : 1);
+        
+        const drawX = (x <= 1 && w <= 1) ? x * canvas.width : x * scaleX;
+        const drawY = (y <= 1 && h <= 1) ? y * canvas.height : y * scaleY;
+        const drawW = (w <= 1) ? w * canvas.width : w * scaleX;
+        const drawH = (h <= 1) ? h * canvas.height : h * scaleY;
+
+        // Draw glowing bounding box directly on face
         ctx.strokeStyle = color;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 3.5;
         ctx.shadowColor = color;
-        ctx.shadowBlur = 10;
-        ctx.strokeRect(x, y, w, h);
+        ctx.shadowBlur = 12;
+        ctx.strokeRect(drawX, drawY, drawW, drawH);
 
         // Draw corner accents
-        const cornerLen = 14;
+        const cornerLen = 16;
         ctx.lineWidth = 5;
         // Top-Left
-        ctx.beginPath(); ctx.moveTo(x, y + cornerLen); ctx.lineTo(x, y); ctx.lineTo(x + cornerLen, y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(drawX, drawY + cornerLen); ctx.lineTo(drawX, drawY); ctx.lineTo(drawX + cornerLen, drawY); ctx.stroke();
         // Top-Right
-        ctx.beginPath(); ctx.moveTo(x + w - cornerLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cornerLen); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(drawX + drawW - cornerLen, drawY); ctx.lineTo(drawX + drawW, drawY); ctx.lineTo(drawX + drawW, drawY + cornerLen); ctx.stroke();
         // Bottom-Left
-        ctx.beginPath(); ctx.moveTo(x, y + h - cornerLen); ctx.lineTo(x, y + h); ctx.lineTo(x + cornerLen, y + h); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(drawX, drawY + drawH - cornerLen); ctx.lineTo(drawX, drawY + drawH); ctx.lineTo(drawX + cornerLen, drawY + drawH); ctx.stroke();
         // Bottom-Right
-        ctx.beginPath(); ctx.moveTo(x + w - cornerLen, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - cornerLen); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(drawX + drawW - cornerLen, drawY + drawH); ctx.lineTo(drawX + drawW, drawY + drawH); ctx.lineTo(drawX + drawW, drawY + drawH - cornerLen); ctx.stroke();
 
         // Reset shadow for text
         ctx.shadowBlur = 0;
