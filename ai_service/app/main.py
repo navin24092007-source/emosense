@@ -65,7 +65,7 @@ async def predict_image(file: UploadFile = File(...)):
     try:
         file_bytes = await file.read()
         image = read_upload_image(file_bytes)
-        result = predict_emotion(image)
+        result = predict_emotion(image, is_static_upload=True)
         return result
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))

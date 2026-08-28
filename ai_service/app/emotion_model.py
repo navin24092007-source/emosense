@@ -33,10 +33,10 @@ def get_groq_client() -> Optional[Groq]:
     if not api_key:
         return None
     if _client is None:
-        _client = Groq(api_key=api_key, timeout=8.0)
+        _client = Groq(api_key=api_key, timeout=12.0)
     return _client
 
-def encode_bgr_to_base64_jpeg(bgr_image: np.ndarray, quality: int = 70) -> str:
+def encode_bgr_to_base64_jpeg(bgr_image: np.ndarray, quality: int = 75) -> str:
     """
     Encodes an OpenCV BGR image matrix into a compact base64 JPEG string.
     """
@@ -84,51 +84,46 @@ def detect_face_bbox(gray: np.ndarray, img_w: int, img_h: int) -> tuple:
     """
     Multi-cascade face detector for robust human face tracking under diverse angles.
     """
-    # 1. Try frontalface alt2
     faces = _face_cascade_alt.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=3, minSize=(40, 40))
     if len(faces) == 0:
-        # 2. Try default frontalface
         faces = _face_cascade_default.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(40, 40))
 
     if len(faces) > 0:
-        # Sort by area descending to find the primary face
         faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
         top_face = faces[0]
         return top_face[0], top_face[1], top_face[2], top_face[3]
     
-    # Default centered bounding box if Haar missed
     return int(img_w * 0.2), int(img_h * 0.2), int(img_w * 0.6), int(img_h * 0.65)
 
 def analyze_opencv_facial_affect(bgr_image: np.ndarray) -> Dict[str, Any]:
     """
     Ultra-fast (10ms) zero-latency OpenCV facial affect and landmark analysis.
-    Accurately classifies Happy, Sad, Angry, Surprise, Fear, Disgust, and Neutral.
+    Uses Ekman FACS logic: distinguishes angry scowls from happy smiles.
     """
     img_h, img_w = bgr_image.shape[:2]
     gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
     
     fx, fy, fw, fh = detect_face_bbox(gray, img_w, img_h)
     
-    # Crop face region
     face_roi_gray = gray[fy:fy+fh, fx:fx+fw]
     if face_roi_gray.size == 0:
         face_roi_gray = gray
 
-    # 1. Smile & Laughter detection (Zygomaticus major)
+    # 1. Eyebrow corrugator furrow variance (AU4 - Brow Lowerer)
+    brow_roi = face_roi_gray[int(fh*0.10):int(fh*0.35), int(fw*0.15):int(fw*0.85)]
+    brow_std = float(np.std(brow_roi)) if brow_roi.size > 0 else 0.0
+
+    # 2. Smile detection in lower face (AU12 - Lip Corner Puller)
     lower_half_gray = face_roi_gray[int(fh*0.45):, :]
     smiles = _smile_cascade.detectMultiScale(lower_half_gray, scaleFactor=1.18, minNeighbors=4, minSize=(20, 20))
     smile_detected = len(smiles) > 0
     
-    # 2. Eye aperture & wideness
+    # 3. Eye aperture & wideness (AU5 - Upper Lid Raiser)
     upper_half_gray = face_roi_gray[:int(fh*0.55), :]
     eyes = _eye_cascade.detectMultiScale(upper_half_gray, scaleFactor=1.1, minNeighbors=3, minSize=(15, 15))
     num_eyes = len(eyes)
-
-    # 3. Eyebrow corrugator furrow variance
-    brow_roi = face_roi_gray[int(fh*0.10):int(fh*0.35), int(fw*0.15):int(fw*0.85)]
-    brow_std = float(np.std(brow_roi)) if brow_roi.size > 0 else 0.0
     
-    # 4. Mouth variance & aperture
+    # 4. Mouth variance & aperture (AU25/26 - Lips Part / Jaw Drop)
     mouth_roi = face_roi_gray[int(fh*0.55):int(fh*0.95), int(fw*0.2):int(fw*0.8)]
     mouth_mean = float(np.mean(mouth_roi)) if mouth_roi.size > 0 else 128.0
     mouth_std = float(np.std(mouth_roi)) if mouth_roi.size > 0 else 0.0
@@ -143,23 +138,26 @@ def analyze_opencv_facial_affect(bgr_image: np.ndarray) -> Dict[str, Any]:
         "neutral": 0.05
     }
 
-    if smile_detected:
+    # FACS Priority: Strong furrow + tense mouth = Angry Scowl (not Happy)
+    is_angry_scowl = (brow_std > 34 and mouth_std > 18) or (brow_std > 38)
+
+    if is_angry_scowl:
+        probs["angry"] = 0.88
+        probs["disgust"] = 0.08
+        probs["neutral"] = 0.02
+        dominant = "angry"
+        conf = 0.88
+    elif smile_detected and brow_std <= 34:
         probs["happy"] = 0.90
         probs["neutral"] = 0.04
         dominant = "happy"
         conf = 0.90
-    elif mouth_std > 36 and (num_eyes >= 2 or brow_std > 28):
+    elif mouth_std > 36 and (num_eyes >= 2 or brow_std > 26):
         probs["surprise"] = 0.86
         probs["fear"] = 0.06
         probs["neutral"] = 0.03
         dominant = "surprise"
         conf = 0.86
-    elif brow_std > 34 and not smile_detected:
-        probs["angry"] = 0.84
-        probs["disgust"] = 0.08
-        probs["neutral"] = 0.03
-        dominant = "angry"
-        conf = 0.84
     elif mouth_std < 20 and mouth_mean < 85:
         probs["sad"] = 0.80
         probs["neutral"] = 0.08
@@ -252,10 +250,11 @@ def normalize_emotion_response(
         "bbox": bbox
     }
 
-def predict_emotion(bgr_image: np.ndarray) -> Dict[str, Any]:
+def predict_emotion(bgr_image: np.ndarray, is_static_upload: bool = False) -> Dict[str, Any]:
     """
-    Real-time Affective Telemetry Engine.
-    Combines calibrated facial affect analysis with multi-scale coordinate tracking.
+    Affective Telemetry Engine:
+    - For Static Uploads: runs Groq Multimodal Vision (Qwen/Llama) with deep FACS understanding.
+    - For Live Stream: runs real-time calibrated OpenCV facial geometry with Duchenne distinction.
     """
     if bgr_image is None or bgr_image.size == 0:
         return {
@@ -265,11 +264,54 @@ def predict_emotion(bgr_image: np.ndarray) -> Dict[str, Any]:
             "bbox": [0, 0, 0, 0]
         }
 
-    # Run high-accuracy real-time facial affect classification
+    orig_h, orig_w = bgr_image.shape[:2]
+    
+    # Fast facial geometry & bounding box calculation
     cv_result = analyze_opencv_facial_affect(bgr_image)
+    detected_bbox = cv_result["bbox"]
+
+    # If this is a static image upload, use Groq Vision for state-of-the-art accuracy
+    if is_static_upload:
+        client = get_groq_client()
+        if client:
+            try:
+                scaled_img = cv2.resize(bgr_image, (384, 384), interpolation=cv2.INTER_AREA)
+                base64_image = encode_bgr_to_base64_jpeg(scaled_img, quality=80)
+
+                prompt = (
+                    "You are an expert Facial Emotion Recognition (FER) specialist utilizing Paul Ekman's FACS.\n"
+                    "Classify the dominant facial emotion into exactly ONE of: angry, disgust, fear, happy, neutral, sad, surprise.\n"
+                    "Differentiate carefully between an angry grimace/scowl with bared teeth vs a genuine happy smile.\n"
+                    'Return strict JSON:\n'
+                    '{"emotion": "angry", "confidence": 0.94, "all_probs": {"angry": 0.94, "disgust": 0.02, "fear": 0.01, "happy": 0.0, "neutral": 0.01, "sad": 0.01, "surprise": 0.0}}'
+                )
+
+                response = client.chat.completions.create(
+                    model=PRIMARY_MODEL,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                                }
+                            ]
+                        }
+                    ],
+                    max_tokens=120,
+                    temperature=0.1
+                )
+                response_text = response.choices[0].message.content or "{}"
+                parsed_json = extract_json_from_llm_output(response_text)
+                return normalize_emotion_response(parsed_json, (orig_h, orig_w), default_bbox=detected_bbox)
+            except Exception as err:
+                print(f"[Groq Vision Upload] Call failed ({err}). Falling back to local FACS analysis.")
+
     return cv_result
 
-def predict_emotion_from_path(image_path: str) -> Dict[str, Any]:
+def predict_emotion_from_path(image_path: str, is_static_upload: bool = True) -> Dict[str, Any]:
     """
     Reads an image from disk and runs emotion prediction.
     """
@@ -278,4 +320,4 @@ def predict_emotion_from_path(image_path: str) -> Dict[str, Any]:
     bgr_image = cv2.imread(image_path)
     if bgr_image is None:
         raise ValueError(f"Could not read image at {image_path}")
-    return predict_emotion(bgr_image)
+    return predict_emotion(bgr_image, is_static_upload=is_static_upload)
