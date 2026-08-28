@@ -31,6 +31,33 @@ export const Navbar: React.FC<NavbarProps> = ({
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [isMuted, setIsMuted] = useState(soundManager.getMuted());
+  const [engineStatus, setEngineStatus] = useState<'ready' | 'waking' | 'checking'>('checking');
+
+  // Automated background keep-alive ping to prevent Render free-tier cold starts
+  React.useEffect(() => {
+    let isMounted = true;
+    const pingServices = async () => {
+      try {
+        const backendBase = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
+        const res = await fetch(`${backendBase}/health`, { method: 'GET' });
+        if (res.ok && isMounted) {
+          setEngineStatus('ready');
+        } else if (isMounted) {
+          setEngineStatus('waking');
+        }
+      } catch (err) {
+        if (isMounted) setEngineStatus('waking');
+      }
+    };
+
+    pingServices();
+    // Ping every 3.5 minutes while tab is open to prevent container sleep
+    const interval = setInterval(pingServices, 210000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleToggleSound = () => {
     const muted = soundManager.toggleMute();
@@ -102,6 +129,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
+
+          {/* Cloud AI Status Badge */}
+          <div className={`hidden md:flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-xl border ${
+            engineStatus === 'ready' 
+              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' 
+              : 'bg-amber-500/10 text-amber-300 border-amber-500/30 animate-pulse'
+          }`}>
+            <span className={`w-2 h-2 rounded-full ${engineStatus === 'ready' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+            <span>{engineStatus === 'ready' ? 'Cloud AI Online' : 'Waking Cloud AI...'}</span>
+          </div>
 
           {/* Privacy Modal Trigger */}
           <button
