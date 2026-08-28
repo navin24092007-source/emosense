@@ -94,7 +94,7 @@ def detect_face_bbox(gray: np.ndarray, img_w: int, img_h: int) -> tuple:
         # Sort by area descending to find the primary face
         faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
         top_face = faces[0]
-        return int(top_face[0]), int(top_face[1]), int(top_face[2]), int(top_face[3])
+        return top_face[0], top_face[1], top_face[2], top_face[3]
     
     # Default centered bounding box if Haar missed
     return int(img_w * 0.2), int(img_h * 0.2), int(img_w * 0.6), int(img_h * 0.65)
