@@ -1,6 +1,7 @@
 import os
 import re
 import cv2
+import cv2.data
 import json
 import base64
 import numpy as np
@@ -39,7 +40,7 @@ def encode_bgr_to_base64_jpeg(bgr_image: np.ndarray, quality: int = 70) -> str:
     """
     Encodes an OpenCV BGR image matrix into a compact base64 JPEG string.
     """
-    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+    encode_param = [cv2.IMWRITE_JPEG_QUALITY, quality]
     success, buffer = cv2.imencode('.jpg', bgr_image, encode_param)
     if not success:
         raise ValueError("Failed to encode image to JPEG")
@@ -92,7 +93,8 @@ def detect_face_bbox(gray: np.ndarray, img_w: int, img_h: int) -> tuple:
     if len(faces) > 0:
         # Sort by area descending to find the primary face
         faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
-        return int(faces[0][0]), int(faces[0][1]), int(faces[0][2]), int(faces[0][3])
+        top_face = faces[0]
+        return int(top_face[0]), int(top_face[1]), int(top_face[2]), int(top_face[3])
     
     # Default centered bounding box if Haar missed
     return int(img_w * 0.2), int(img_h * 0.2), int(img_w * 0.6), int(img_h * 0.65)
@@ -200,7 +202,8 @@ def normalize_emotion_response(
     emotion = raw_emotion if raw_emotion in EMOTION_LABELS else "neutral"
     
     try:
-        confidence = float(raw_data.get("confidence", 0.0))
+        raw_conf = raw_data.get("confidence", 0.0)
+        confidence = float(raw_conf) if raw_conf is not None else 0.85
         confidence = max(0.0, min(1.0, confidence))
     except (ValueError, TypeError):
         confidence = 0.85
@@ -211,9 +214,12 @@ def normalize_emotion_response(
     if isinstance(raw_probs, dict) and len(raw_probs) > 0:
         for label in EMOTION_LABELS:
             val = raw_probs.get(label, raw_probs.get(label.capitalize(), 0.0))
-            try:
-                all_probs[label] = max(0.0, min(1.0, float(val)))
-            except (ValueError, TypeError):
+            if val is not None:
+                try:
+                    all_probs[label] = max(0.0, min(1.0, float(val)))
+                except (ValueError, TypeError):
+                    all_probs[label] = 0.0
+            else:
                 all_probs[label] = 0.0
     
     total_p = sum(all_probs.values())
@@ -259,8 +265,6 @@ def predict_emotion(bgr_image: np.ndarray) -> Dict[str, Any]:
             "bbox": [0, 0, 0, 0]
         }
 
-    orig_h, orig_w = bgr_image.shape[:2]
-    
     # Run high-accuracy real-time facial affect classification
     cv_result = analyze_opencv_facial_affect(bgr_image)
     return cv_result
