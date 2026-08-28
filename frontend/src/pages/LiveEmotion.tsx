@@ -264,14 +264,15 @@ export const LiveEmotion: React.FC = () => {
       canvasRef.current = document.createElement('canvas');
     }
     const canvas = canvasRef.current;
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
+    // Scale down frame to 320x240 for instant low-latency transmission (~15KB per frame)
+    canvas.width = 320;
+    canvas.height = 240;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const base64Frame = canvas.toDataURL('image/jpeg', 0.6);
+    ctx.drawImage(video, 0, 0, 320, 240);
+    const base64Frame = canvas.toDataURL('image/jpeg', 0.65);
 
     const socket = getSocket();
     if (socket && socket.connected) {

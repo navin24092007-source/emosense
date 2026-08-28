@@ -15,13 +15,14 @@ export const predictImage = async (req: AuthRequest, res: Response) => {
     const userApiKey = apiKey || (req.headers['x-llm-api-key'] as string);
     let result;
 
-    // If external LLM API key is present or requested
-    if (userApiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY) {
+    // Only route to external LLM if explicitly requested by provider or client API key
+    const shouldUseExternalLLM = (provider === 'gemini' || provider === 'openai') && (userApiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY);
+    if (shouldUseExternalLLM) {
       try {
         const base64 = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
         result = await predictWithExternalLLM(base64, userApiKey, provider || 'auto');
       } catch (llmErr) {
-        console.warn('[LLM Vision] Falling back to local PyTorch microservice:', (llmErr as any).message);
+        console.warn('[LLM Vision] Falling back to primary AI microservice:', (llmErr as any).message);
         result = await predictImageFromFile(req.file.buffer, req.file.originalname, req.file.mimetype);
       }
     } else {
@@ -58,11 +59,12 @@ export const predictFrame = async (req: AuthRequest, res: Response) => {
     const userApiKey = apiKey || (req.headers['x-llm-api-key'] as string);
     let result;
 
-    if (userApiKey || (provider && (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY))) {
+    const shouldUseExternalLLM = (provider === 'gemini' || provider === 'openai') && (userApiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY);
+    if (shouldUseExternalLLM) {
       try {
         result = await predictWithExternalLLM(image, userApiKey, provider || 'auto');
       } catch (llmErr) {
-        console.warn('[LLM Vision Frame] Falling back to local PyTorch microservice:', (llmErr as any).message);
+        console.warn('[LLM Vision Frame] Falling back to primary AI microservice:', (llmErr as any).message);
         result = await predictFrameFromBase64(image);
       }
     } else {
