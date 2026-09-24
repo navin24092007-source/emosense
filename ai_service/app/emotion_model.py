@@ -104,7 +104,7 @@ def detect_face_bbox(gray: np.ndarray, bgr: np.ndarray) -> tuple:
         if len(faces) > 0:
             faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
             f = faces[0]
-            return int(f[0]), int(f[1]), int(f[2]), int(f[3])
+            return f[0], f[1], f[2], f[3]
 
     # 2. Skin tone segmentation in YCrCb color space
     if bgr is not None and bgr.size > 0:
@@ -120,7 +120,7 @@ def detect_face_bbox(gray: np.ndarray, bgr: np.ndarray) -> tuple:
                 if len(valid) > 0:
                     largest = max(valid, key=cv2.contourArea)
                     bx, by, bw, bh = cv2.boundingRect(largest)
-                    return int(bx), int(by), int(bw), int(bh)
+                    return bx, by, bw, bh
         except Exception:
             pass
 
