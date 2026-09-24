@@ -212,8 +212,11 @@ export const LiveEmotion: React.FC = () => {
         soundManager.playSuccessChime();
         
         const res = await api.post('/emotions/predict-frame', {
+          image: base64Img,
           frame: base64Img,
-          engine: aiEngineRef.current !== 'local' ? aiEngineRef.current : undefined
+          engine: aiEngineRef.current !== 'local' ? aiEngineRef.current : undefined,
+          provider: aiEngineRef.current !== 'local' ? aiEngineRef.current : undefined,
+          apiKey: aiEngineRef.current !== 'local' && apiKeyRef.current ? apiKeyRef.current : undefined
         });
         
         const data = res.data;

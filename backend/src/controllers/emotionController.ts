@@ -51,24 +51,26 @@ export const predictImage = async (req: AuthRequest, res: Response) => {
 
 export const predictFrame = async (req: AuthRequest, res: Response) => {
   try {
-    const { image, sessionId, apiKey, provider } = req.body;
-    if (!image) {
+    const { image, frame, sessionId, apiKey, provider, engine } = req.body;
+    const base64Data = image || frame;
+    if (!base64Data) {
       return res.status(400).json({ message: 'Base64 image frame is required' });
     }
 
+    const targetProvider = provider || engine;
     const userApiKey = apiKey || (req.headers['x-llm-api-key'] as string);
     let result;
 
-    const shouldUseExternalLLM = (provider === 'gemini' || provider === 'openai') && (userApiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY);
+    const shouldUseExternalLLM = (targetProvider === 'gemini' || targetProvider === 'openai') && (userApiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY);
     if (shouldUseExternalLLM) {
       try {
-        result = await predictWithExternalLLM(image, userApiKey, provider || 'auto');
+        result = await predictWithExternalLLM(base64Data, userApiKey, targetProvider || 'auto');
       } catch (llmErr) {
         console.warn('[LLM Vision Frame] Falling back to primary AI microservice:', (llmErr as any).message);
-        result = await predictFrameFromBase64(image);
+        result = await predictFrameFromBase64(base64Data);
       }
     } else {
-      result = await predictFrameFromBase64(image);
+      result = await predictFrameFromBase64(base64Data);
     }
 
     if (sessionId) {

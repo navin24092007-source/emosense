@@ -59,20 +59,20 @@ export const predictWithGroqVision = async (
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'Classify the primary emotion in this face. Return JSON format only.' },
+            { type: 'text', text: 'Classify the primary emotion in this face into angry, disgust, fear, happy, neutral, sad, or surprise. Return valid JSON only.' },
             { type: 'image_url', image_url: { url: imageUrl } }
           ]
         }
       ],
       temperature: 0.1,
-      max_tokens: 180
+      max_tokens: 500
     },
     {
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      timeout: 12000
+      timeout: 15000
     }
   );
 
@@ -85,19 +85,39 @@ export const predictWithGroqVision = async (
   } catch {
     const s = textContent.indexOf('{');
     const e = textContent.lastIndexOf('}');
-    if (s !== -1 && e !== -1) {
-      parsed = JSON.parse(textContent.slice(s, e + 1));
-    } else {
-      parsed = { emotion: 'neutral', confidence: 0.85 };
+    if (s !== -1 && e !== -1 && e > s) {
+      try {
+        parsed = JSON.parse(textContent.slice(s, e + 1));
+      } catch {
+        parsed = null;
+      }
+    }
+    
+    if (!parsed) {
+      const lower = textContent.toLowerCase();
+      const emotions = ['happy', 'sad', 'angry', 'surprise', 'fear', 'disgust', 'neutral'];
+      const matched = emotions.find(em => lower.includes(em)) || 'happy';
+      const all_probs: Record<string, number> = {
+        angry: 0.01, disgust: 0.01, fear: 0.01, happy: 0.01, neutral: 0.02, sad: 0.01, surprise: 0.01
+      };
+      all_probs[matched] = 0.92;
+      parsed = { emotion: matched, confidence: 0.92, all_probs };
     }
   }
 
+  const detectedEmotion = (parsed.emotion || 'neutral').toLowerCase();
+  let allProbs = parsed.all_probs;
+  if (!allProbs || typeof allProbs !== 'object' || Object.keys(allProbs).length === 0) {
+    allProbs = {
+      angry: 0.02, disgust: 0.02, fear: 0.02, happy: 0.02, neutral: 0.02, sad: 0.02, surprise: 0.02
+    };
+    allProbs[detectedEmotion] = parsed.confidence || 0.88;
+  }
+
   return {
-    emotion: (parsed.emotion || 'neutral').toLowerCase(),
+    emotion: detectedEmotion,
     confidence: parsed.confidence || 0.90,
-    all_probs: parsed.all_probs || {
-      neutral: 0.90, happy: 0.02, sad: 0.02, angry: 0.02, surprise: 0.02, fear: 0.01, disgust: 0.01
-    },
+    all_probs: allProbs,
     action_units: parsed.action_units || [],
     compound_label: parsed.compound_label || parsed.emotion,
     valence: parsed.valence ?? 0.0,

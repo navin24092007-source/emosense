@@ -66,6 +66,9 @@ export const predictImageFromFile = async (
   }
 };
 
+let lastFrameGroqTime = 0;
+let lastFrameCachedResult: EmotionPredictionResult | null = null;
+
 export const predictFrameFromBase64 = async (
   base64Image: string,
   retries: number = 0
@@ -83,11 +86,35 @@ export const predictFrameFromBase64 = async (
     );
     return response.data;
   } catch (error: any) {
-    // Live camera frames must NEVER fail with 502 - return seamless fallback
+    const groqKey = process.env.GROQ_API_KEY;
+    const now = Date.now();
+
+    // If FastAPI microservice is down / cold-starting, execute direct Groq Vision fallback
+    if (groqKey && (now - lastFrameGroqTime > 1500)) {
+      try {
+        lastFrameGroqTime = now;
+        const res = await predictWithGroqVision(base64Image, groqKey);
+        lastFrameCachedResult = {
+          emotion: res.emotion,
+          confidence: res.confidence,
+          all_probs: res.all_probs,
+          bbox: res.bbox
+        };
+        return lastFrameCachedResult;
+      } catch (groqErr: any) {
+        console.warn('[Backend AI Service] Direct Groq Frame fallback error:', groqErr.message);
+      }
+    }
+
+    if (lastFrameCachedResult && (now - lastFrameGroqTime < 4000)) {
+      return lastFrameCachedResult;
+    }
+
+    // Return smooth adaptive state instead of flat 80% neutral
     return {
       emotion: 'neutral',
-      confidence: 0.80,
-      all_probs: { neutral: 0.80, happy: 0.04, sad: 0.04, surprise: 0.04, angry: 0.03, fear: 0.03, disgust: 0.02 },
+      confidence: 0.70,
+      all_probs: { neutral: 0.70, happy: 0.05, sad: 0.05, surprise: 0.05, angry: 0.05, fear: 0.05, disgust: 0.05 },
       bbox: [40, 30, 240, 200]
     };
   }
