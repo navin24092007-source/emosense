@@ -18,13 +18,16 @@ import argparse
 import random
 import math
 import cv2
+import cv2.data
 import numpy as np
 from typing import Tuple, Dict, List, Optional, Any
 try:
-    import matplotlib.pyplot as plt
-    from sklearn.metrics import confusion_matrix
+    import matplotlib.pyplot as plt  # type: ignore
+    from sklearn.metrics import confusion_matrix  # type: ignore
     SKLEARN_AVAILABLE = True
-except ImportError:
+except Exception:
+    plt = None  # type: ignore
+    confusion_matrix = None  # type: ignore
     SKLEARN_AVAILABLE = False
 
 # Ensure ai_service root is on sys.path
@@ -162,8 +165,8 @@ class EmotionFolderDataset(Dataset):
             counts[label] += 1
         return counts
 
-    def __getitem__(self, idx):
-        path, label = self.samples[idx]
+    def __getitem__(self, index: int):
+        path, label = self.samples[index]
         try:
             image = Image.open(path).convert('RGB')
             img_np = np.array(image)
@@ -186,8 +189,8 @@ class DiverseFacialEmotionDataset(Dataset):
     """
     def __init__(self, samples_per_class: int = 800, transform=None):
         self.transform = transform
-        self.data = []
-        self.targets = []
+        self.data: List[Image.Image] = []
+        self.targets: List[int] = []
 
         for label_idx in range(len(DEFAULT_EMOTION_LABELS)):
             for _ in range(samples_per_class):
@@ -200,8 +203,8 @@ class DiverseFacialEmotionDataset(Dataset):
         fw = random.randint(13, 17)
         fh = random.randint(16, 21)
         cx, cy = random.randint(23, 25), random.randint(23, 26)
-        skin = random.randint(180, 240)
-        cv2.ellipse(canvas, (cx, cy), (fw, fh), 0, 0, 360, skin, -1)
+        skin = float(random.randint(180, 240))
+        cv2.ellipse(canvas, (cx, cy), (fw, fh), 0, 0, 360, (skin,), -1)
 
         # Lighting & Noise
         noise = np.random.normal(0, random.uniform(3, 8), (48, 48)).astype(np.int16)
@@ -215,71 +218,71 @@ class DiverseFacialEmotionDataset(Dataset):
 
         # 0: ANGRY (AU4 + AU7 + AU23)
         if label == 0:
-            cv2.line(canvas, (lx - 4, by - 2), (lx + 3, by + 2), 40, 2)
-            cv2.line(canvas, (rx + 4, by - 2), (rx - 3, by + 2), 40, 2)
-            cv2.ellipse(canvas, (lx, eye_y), (3, 2), 0, 0, 360, 30, -1)
-            cv2.ellipse(canvas, (rx, eye_y), (3, 2), 0, 0, 360, 30, -1)
-            cv2.line(canvas, (cx - 5, my), (cx + 5, my), 45, 2)
+            cv2.line(canvas, (lx - 4, by - 2), (lx + 3, by + 2), (40.0,), 2)
+            cv2.line(canvas, (rx + 4, by - 2), (rx - 3, by + 2), (40.0,), 2)
+            cv2.ellipse(canvas, (lx, eye_y), (3, 2), 0, 0, 360, (30.0,), -1)
+            cv2.ellipse(canvas, (rx, eye_y), (3, 2), 0, 0, 360, (30.0,), -1)
+            cv2.line(canvas, (cx - 5, my), (cx + 5, my), (45.0,), 2)
 
         # 1: DISGUST (AU9 + AU10)
         elif label == 1:
-            cv2.line(canvas, (lx - 3, by), (lx + 3, by + 1), 50, 2)
-            cv2.line(canvas, (rx + 3, by), (rx - 3, by + 1), 50, 2)
-            cv2.circle(canvas, (lx, eye_y), 2, 35, -1)
-            cv2.circle(canvas, (rx, eye_y), 2, 35, -1)
-            cv2.line(canvas, (cx - 2, eye_y + 4), (cx + 2, eye_y + 4), 60, 1)
-            cv2.ellipse(canvas, (cx, my), (5, 3), 0, 180, 360, 45, 2)
+            cv2.line(canvas, (lx - 3, by), (lx + 3, by + 1), (50.0,), 2)
+            cv2.line(canvas, (rx + 3, by), (rx - 3, by + 1), (50.0,), 2)
+            cv2.circle(canvas, (lx, eye_y), 2, (35.0,), -1)
+            cv2.circle(canvas, (rx, eye_y), 2, (35.0,), -1)
+            cv2.line(canvas, (cx - 2, eye_y + 4), (cx + 2, eye_y + 4), (60.0,), 1)
+            cv2.ellipse(canvas, (cx, my), (5, 3), 0, 180, 360, (45.0,), 2)
 
         # 2: FEAR (AU1 + AU2 + AU4 + AU20)
         elif label == 2:
-            cv2.line(canvas, (lx - 4, by - 3), (lx + 3, by - 1), 40, 2)
-            cv2.line(canvas, (rx + 4, by - 3), (rx - 3, by - 1), 40, 2)
-            cv2.ellipse(canvas, (lx, eye_y), (4, 4), 0, 0, 360, 255, -1)
-            cv2.circle(canvas, (lx, eye_y), 2, 20, -1)
-            cv2.ellipse(canvas, (rx, eye_y), (4, 4), 0, 0, 360, 255, -1)
-            cv2.circle(canvas, (rx, eye_y), 2, 20, -1)
-            cv2.ellipse(canvas, (cx, my), (7, 3), 0, 0, 360, 35, 2)
+            cv2.line(canvas, (lx - 4, by - 3), (lx + 3, by - 1), (40.0,), 2)
+            cv2.line(canvas, (rx + 4, by - 3), (rx - 3, by - 1), (40.0,), 2)
+            cv2.ellipse(canvas, (lx, eye_y), (4, 4), 0, 0, 360, (255.0,), -1)
+            cv2.circle(canvas, (lx, eye_y), 2, (20.0,), -1)
+            cv2.ellipse(canvas, (rx, eye_y), (4, 4), 0, 0, 360, (255.0,), -1)
+            cv2.circle(canvas, (rx, eye_y), 2, (20.0,), -1)
+            cv2.ellipse(canvas, (cx, my), (7, 3), 0, 0, 360, (35.0,), 2)
 
         # 3: HAPPY (AU6 + AU12)
         elif label == 3:
-            cv2.ellipse(canvas, (lx, eye_y), (3, 2), 0, 180, 360, 40, 2)
-            cv2.ellipse(canvas, (rx, eye_y), (3, 2), 0, 180, 360, 40, 2)
-            cv2.ellipse(canvas, (cx, my - 2), (8, 6), 0, 0, 180, 25, -1)
+            cv2.ellipse(canvas, (lx, eye_y), (3, 2), 0, 180, 360, (40.0,), 2)
+            cv2.ellipse(canvas, (rx, eye_y), (3, 2), 0, 180, 360, (40.0,), 2)
+            cv2.ellipse(canvas, (cx, my - 2), (8, 6), 0, 0, 180, (25.0,), -1)
 
         # 4: NEUTRAL (AU0)
         elif label == 4:
-            cv2.line(canvas, (lx - 3, by), (lx + 3, by), 60, 1)
-            cv2.line(canvas, (rx - 3, by), (rx + 3, by), 60, 1)
-            cv2.circle(canvas, (lx, eye_y), 2, 40, -1)
-            cv2.circle(canvas, (rx, eye_y), 2, 40, -1)
-            cv2.line(canvas, (cx - 4, my), (cx + 4, my), 50, 2)
+            cv2.line(canvas, (lx - 3, by), (lx + 3, by), (60.0,), 1)
+            cv2.line(canvas, (rx - 3, by), (rx + 3, by), (60.0,), 1)
+            cv2.circle(canvas, (lx, eye_y), 2, (40.0,), -1)
+            cv2.circle(canvas, (rx, eye_y), 2, (40.0,), -1)
+            cv2.line(canvas, (cx - 4, my), (cx + 4, my), (50.0,), 2)
 
         # 5: SAD (AU1 + AU15)
         elif label == 5:
-            cv2.line(canvas, (lx - 4, by + 1), (lx + 3, by - 2), 45, 2)
-            cv2.line(canvas, (rx + 4, by + 1), (rx - 3, by - 2), 45, 2)
-            cv2.circle(canvas, (lx, eye_y), 2, 35, -1)
-            cv2.circle(canvas, (rx, eye_y), 2, 35, -1)
-            cv2.ellipse(canvas, (cx, my + 3), (6, 4), 0, 180, 360, 40, 2)
+            cv2.line(canvas, (lx - 4, by + 1), (lx + 3, by - 2), (45.0,), 2)
+            cv2.line(canvas, (rx + 4, by + 1), (rx - 3, by - 2), (45.0,), 2)
+            cv2.circle(canvas, (lx, eye_y), 2, (35.0,), -1)
+            cv2.circle(canvas, (rx, eye_y), 2, (35.0,), -1)
+            cv2.ellipse(canvas, (cx, my + 3), (6, 4), 0, 180, 360, (40.0,), 2)
 
         # 6: SURPRISE (AU1 + AU2 + AU5 + AU26)
         elif label == 6:
-            cv2.ellipse(canvas, (lx, by - 3), (4, 3), 0, 180, 360, 50, 2)
-            cv2.ellipse(canvas, (rx, by - 3), (4, 3), 0, 180, 360, 50, 2)
-            cv2.ellipse(canvas, (lx, eye_y), (4, 4), 0, 0, 360, 255, -1)
-            cv2.circle(canvas, (lx, eye_y), 2, 20, -1)
-            cv2.ellipse(canvas, (rx, eye_y), (4, 4), 0, 0, 360, 255, -1)
-            cv2.circle(canvas, (rx, eye_y), 2, 20, -1)
-            cv2.ellipse(canvas, (cx, my), (4, 7), 0, 0, 360, 25, -1)
+            cv2.ellipse(canvas, (lx, by - 3), (4, 3), 0, 180, 360, (50.0,), 2)
+            cv2.ellipse(canvas, (rx, by - 3), (4, 3), 0, 180, 360, (50.0,), 2)
+            cv2.ellipse(canvas, (lx, eye_y), (4, 4), 0, 0, 360, (255.0,), -1)
+            cv2.circle(canvas, (lx, eye_y), 2, (20.0,), -1)
+            cv2.ellipse(canvas, (rx, eye_y), (4, 4), 0, 0, 360, (255.0,), -1)
+            cv2.circle(canvas, (rx, eye_y), 2, (20.0,), -1)
+            cv2.ellipse(canvas, (cx, my), (4, 7), 0, 0, 360, (25.0,), -1)
 
         return Image.fromarray(canvas).convert('L')
 
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, idx):
-        img = self.data[idx]
-        target = self.targets[idx]
+    def __getitem__(self, index: int):
+        img = self.data[index]
+        target = self.targets[index]
         if self.transform:
             img = self.transform(img)
         return img, target
@@ -293,7 +296,7 @@ class EfficientNetEmotion(nn.Module):
         super(EfficientNetEmotion, self).__init__()
         weights = models.EfficientNet_B0_Weights.DEFAULT if pretrained else None
         self.backbone = models.efficientnet_b0(weights=weights)
-        in_features = self.backbone.classifier[1].in_features
+        in_features = int(self.backbone.classifier[1].in_features)  # type: ignore
         self.backbone.classifier = nn.Sequential(
             nn.Dropout(p=0.3, inplace=True),
             nn.Linear(in_features, 256),
@@ -320,7 +323,7 @@ class AsymmetricFocalLoss(nn.Module):
     Focal Loss with focusing parameter gamma and class-wise penalty weights
     to prevent gradient starvation on rare/hard emotions (Disgust, Fear, Sad).
     """
-    def __init__(self, alpha: torch.Tensor = None, gamma: float = 2.0, label_smoothing: float = 0.05):
+    def __init__(self, alpha: Optional[torch.Tensor] = None, gamma: float = 2.0, label_smoothing: float = 0.05):
         super(AsymmetricFocalLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
@@ -476,9 +479,11 @@ def train(
             train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
 
         # Balanced Weighted Sampling for minority hard classes
-        class_counts = train_dataset.dataset.get_class_counts() if hasattr(train_dataset, "dataset") else np.ones(7)
+        underlying = getattr(train_dataset, "dataset", train_dataset)
+        class_counts = underlying.get_class_counts() if hasattr(underlying, "get_class_counts") else np.ones(7)
         class_weights_arr = 1.0 / (class_counts + 1e-5)
-        sample_weights = [class_weights_arr[label] for _, label in (train_dataset.dataset.samples if hasattr(train_dataset, "dataset") else [])]
+        raw_samples = getattr(underlying, "samples", [])
+        sample_weights = [class_weights_arr[label] for _, label in raw_samples] if raw_samples else None
         sampler = WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True) if sample_weights else None
         train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, shuffle=(sampler is None))
     else:
@@ -493,9 +498,9 @@ def train(
 
     # Initialize model
     if arch.lower() == "efficientnet":
-        model = EfficientNetEmotion(num_classes=7, pretrained=True).to(device)
+        model: nn.Module = EfficientNetEmotion(num_classes=7, pretrained=True).to(device)
     else:
-        model = SEResNetEmotion(num_classes=7).to(device)
+        model = SEResNetEmotion(num_classes=7, in_channels=1).to(device)  # type: ignore
 
     criterion = AsymmetricFocalLoss(alpha=HARD_CLASS_WEIGHTS.to(device), gamma=2.0, label_smoothing=0.05)
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
@@ -590,23 +595,26 @@ def train(
     print(f"💾 Checkpoint saved: {best_weights_path}")
     print("=" * 70)
 
-    # Export to ONNX
-    print("🚀 Exporting best model to ONNX format...")
-    model.load_state_dict(torch.load(best_weights_path))
-    model.eval()
-    dummy_input = torch.randn(1, 1, 48, 48).to(device)
-    onnx_path = best_weights_path.replace('.pth', '.onnx')
-    torch.onnx.export(
-        model, 
-        dummy_input, 
-        onnx_path, 
-        export_params=True, 
-        opset_version=11, 
-        input_names=['input'], 
-        output_names=['output'], 
-        dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
-    )
-    print(f"✅ ONNX model successfully exported to: {onnx_path}")
+    # Export to ONNX if supported
+    try:
+        print("🚀 Exporting best model to ONNX format...")
+        model.load_state_dict(torch.load(best_weights_path, map_location=device))
+        model.eval()
+        dummy_input = torch.randn(1, 1, 48, 48).to(device)
+        onnx_path = best_weights_path.replace('.pth', '.onnx')
+        torch.onnx.export(
+            model, 
+            (dummy_input,), 
+            onnx_path, 
+            export_params=True, 
+            opset_version=11, 
+            input_names=['input'], 
+            output_names=['output'], 
+            dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
+        )
+        print(f"✅ ONNX model successfully exported to: {onnx_path}")
+    except Exception as onnx_err:
+        print(f"ℹ️ ONNX export skipped ({onnx_err}). PyTorch model checkpoint is ready: {best_weights_path}")
 
 
 

@@ -17,8 +17,14 @@ try:
     import torch.nn.functional as F
     from torchvision import transforms
     TORCH_AVAILABLE = True
+    _BaseModule = nn.Module
 except ImportError:
+    torch = None  # type: ignore
+    nn = None     # type: ignore
+    F = None      # type: ignore
+    transforms = None  # type: ignore
     TORCH_AVAILABLE = False
+    _BaseModule = object  # type: ignore
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -33,10 +39,10 @@ _nn_model_loaded: bool = False
 # ==============================================================================
 # SQUEEZE-AND-EXCITATION RESIDUAL CNN ARCHITECTURE (SE-ResNet)
 # ==============================================================================
-if TORCH_AVAILABLE:
+if TORCH_AVAILABLE and nn is not None and F is not None and transforms is not None:
     class SEBlock(nn.Module):
         def __init__(self, channels: int, reduction: int = 16):
-            super(SEBlock, self).__init__()
+            super().__init__()
             self.fc1 = nn.Linear(channels, max(1, channels // reduction), bias=False)
             self.fc2 = nn.Linear(max(1, channels // reduction), channels, bias=False)
 
@@ -49,7 +55,7 @@ if TORCH_AVAILABLE:
 
     class SEResNetBlock(nn.Module):
         def __init__(self, in_channels: int, out_channels: int, stride: int = 1):
-            super(SEResNetBlock, self).__init__()
+            super().__init__()
             self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
             self.bn1 = nn.BatchNorm2d(out_channels)
             self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
@@ -72,7 +78,7 @@ if TORCH_AVAILABLE:
 
     class SEResNetEmotion(nn.Module):
         def __init__(self, num_classes: int = 7, in_channels: int = 1):
-            super(SEResNetEmotion, self).__init__()
+            super().__init__()
             self.stem = nn.Sequential(
                 nn.Conv2d(in_channels, 32, kernel_size=3, stride=1, padding=1, bias=False),
                 nn.BatchNorm2d(32),
@@ -100,7 +106,7 @@ if TORCH_AVAILABLE:
             out = self.layer3(out)
             return self.classifier(out)
 
-    _transform = transforms.Compose([
+    _transform: Optional[Any] = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Grayscale(num_output_channels=1),
         transforms.Resize((48, 48)),
@@ -109,7 +115,18 @@ if TORCH_AVAILABLE:
     ])
 else:
     class SEResNetEmotion:
-        pass
+        def __init__(self, num_classes: int = 7, in_channels: int = 1):
+            pass
+        def load_state_dict(self, state_dict: Any, strict: bool = False):
+            pass
+        def eval(self):
+            pass
+        def to(self, device: Any):
+            return self
+        def __call__(self, *args, **kwargs):
+            return None
+
+    _transform: Optional[Any] = None
 
 def get_pytorch_model() -> Optional[Any]:
     """
@@ -299,7 +316,7 @@ def analyze_opencv_facial_affect(bgr_image: np.ndarray) -> Dict[str, Any]:
                     "emotion": dominant,
                     "confidence": confidence,
                     "all_probs": sorted_probs,
-                    "bbox": [fx, fy, fw, fh]
+                    "bbox": [int(fx), int(fy), int(fw), int(fh)]
                 }
         except Exception as nn_err:
             pass
