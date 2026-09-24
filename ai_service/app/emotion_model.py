@@ -10,6 +10,16 @@ from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 from groq import Groq
 
+# PyTorch Deep Learning Inference Engine
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    from torchvision import transforms
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+
 # Load environment variables from .env if present
 load_dotenv()
 
@@ -17,8 +27,123 @@ EMOTION_LABELS = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surpri
 PRIMARY_MODEL = "qwen/qwen3.8-27b"
 
 _client: Optional[Groq] = None
-_last_groq_frame_time: float = 0.0
-_last_cached_frame_result: Optional[Dict[str, Any]] = None
+_nn_model: Optional[Any] = None
+_nn_model_loaded: bool = False
+
+# ==============================================================================
+# SQUEEZE-AND-EXCITATION RESIDUAL CNN ARCHITECTURE (SE-ResNet)
+# ==============================================================================
+if TORCH_AVAILABLE:
+    class SEBlock(nn.Module):
+        def __init__(self, channels: int, reduction: int = 16):
+            super(SEBlock, self).__init__()
+            self.fc1 = nn.Linear(channels, max(1, channels // reduction), bias=False)
+            self.fc2 = nn.Linear(max(1, channels // reduction), channels, bias=False)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            b, c, _, _ = x.size()
+            y = F.adaptive_avg_pool2d(x, 1).view(b, c)
+            y = F.relu(self.fc1(y), inplace=True)
+            y = torch.sigmoid(self.fc2(y)).view(b, c, 1, 1)
+            return x * y.expand_as(x)
+
+    class SEResNetBlock(nn.Module):
+        def __init__(self, in_channels: int, out_channels: int, stride: int = 1):
+            super(SEResNetBlock, self).__init__()
+            self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
+            self.bn1 = nn.BatchNorm2d(out_channels)
+            self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+            self.bn2 = nn.BatchNorm2d(out_channels)
+            self.se = SEBlock(out_channels)
+
+            self.shortcut = nn.Sequential()
+            if stride != 1 or in_channels != out_channels:
+                self.shortcut = nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                    nn.BatchNorm2d(out_channels)
+                )
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            out = F.relu(self.bn1(self.conv1(x)), inplace=True)
+            out = self.bn2(self.conv2(out))
+            out = self.se(out)
+            out += self.shortcut(x)
+            return F.relu(out, inplace=True)
+
+    class SEResNetEmotion(nn.Module):
+        def __init__(self, num_classes: int = 7, in_channels: int = 1):
+            super(SEResNetEmotion, self).__init__()
+            self.stem = nn.Sequential(
+                nn.Conv2d(in_channels, 32, kernel_size=3, stride=1, padding=1, bias=False),
+                nn.BatchNorm2d(32),
+                nn.ReLU(inplace=True)
+            )
+            self.layer1 = SEResNetBlock(32, 64, stride=2)    # 48x48 -> 24x24
+            self.layer2 = SEResNetBlock(64, 128, stride=2)   # 24x24 -> 12x12
+            self.layer3 = SEResNetBlock(128, 256, stride=2)  # 12x12 -> 6x6
+            
+            self.classifier = nn.Sequential(
+                nn.AdaptiveAvgPool2d((1, 1)),
+                nn.Flatten(),
+                nn.Dropout(p=0.4),
+                nn.Linear(256, 128),
+                nn.BatchNorm1d(128),
+                nn.ReLU(inplace=True),
+                nn.Dropout(p=0.3),
+                nn.Linear(128, num_classes)
+            )
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            out = self.stem(x)
+            out = self.layer1(out)
+            out = self.layer2(out)
+            out = self.layer3(out)
+            return self.classifier(out)
+
+    _transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Grayscale(num_output_channels=1),
+        transforms.Resize((48, 48)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5], std=[0.5])
+    ])
+else:
+    class SEResNetEmotion:
+        pass
+
+def get_pytorch_model() -> Optional[Any]:
+    """
+    Lazily loads the fine-tuned SE-ResNet PyTorch model weights if present on disk.
+    """
+    global _nn_model, _nn_model_loaded
+    if not TORCH_AVAILABLE:
+        return None
+    if _nn_model_loaded:
+        return _nn_model
+
+    _nn_model_loaded = True
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    model_paths = [
+        os.path.join(base_dir, "models", "fer2013_model.pth"),
+        os.path.join(base_dir, "models", "best_model.pth"),
+        os.path.join(base_dir, "fer2013_model.pth")
+    ]
+
+    for p in model_paths:
+        if os.path.exists(p):
+            try:
+                model = SEResNetEmotion(num_classes=7, in_channels=1)
+                checkpoint = torch.load(p, map_location="cpu")
+                state_dict = checkpoint.get("model_state_dict", checkpoint.get("state_dict", checkpoint))
+                model.load_state_dict(state_dict, strict=False)
+                model.eval()
+                _nn_model = model
+                print(f"[PyTorch AI Engine] Successfully loaded SE-ResNet weights from: {p}")
+                return _nn_model
+            except Exception as e:
+                print(f"[PyTorch AI Engine] Failed to load checkpoint ({p}): {e}")
+
+    return None
 
 # Initialize robust Haar Cascades for multi-angle face tracking
 _face_cascade_alt2 = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml')
@@ -158,11 +283,32 @@ def analyze_opencv_facial_affect(bgr_image: np.ndarray) -> Dict[str, Any]:
     if face_crop.size == 0:
         face_crop = gray
 
+    # 1. Deep Learning Inference (SE-ResNet PyTorch Model)
+    nn_model = get_pytorch_model()
+    if nn_model is not None and TORCH_AVAILABLE and face_crop.size > 0:
+        try:
+            with torch.no_grad():
+                tensor = _transform(face_crop).unsqueeze(0)
+                logits = nn_model(tensor)
+                probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
+                all_probs = {EMOTION_LABELS[i]: round(float(probs[i]), 4) for i in range(len(EMOTION_LABELS))}
+                sorted_probs = {k: v for k, v in sorted(all_probs.items(), key=lambda x: x[1], reverse=True)}
+                dominant = max(sorted_probs, key=lambda k: sorted_probs[k])
+                confidence = sorted_probs[dominant]
+                return {
+                    "emotion": dominant,
+                    "confidence": confidence,
+                    "all_probs": sorted_probs,
+                    "bbox": [fx, fy, fw, fh]
+                }
+        except Exception as nn_err:
+            pass
+
     face_norm = cv2.resize(face_crop, (160, 160), interpolation=cv2.INTER_AREA)
     clahe = cv2.createCLAHE(clipLimit=2.8, tileGridSize=(8, 8))
     face_eq = clahe.apply(face_norm)
 
-    # 1. Smile Detection (AU12 - Lip Corner Puller)
+    # 2. Smile Detection (AU12 - Lip Corner Puller)
     lower_half = face_eq[int(160 * 0.45):, :]
     smiles = _smile_cascade.detectMultiScale(lower_half, scaleFactor=1.10, minNeighbors=2, minSize=(14, 14))
     smile_detected = len(smiles) > 0

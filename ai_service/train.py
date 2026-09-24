@@ -20,8 +20,12 @@ import math
 import cv2
 import numpy as np
 from typing import Tuple, Dict, List, Optional, Any
-import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix
+try:
+    import matplotlib.pyplot as plt
+    from sklearn.metrics import confusion_matrix
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
 
 # Ensure ai_service root is on sys.path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -366,7 +370,7 @@ def compute_detailed_metrics(y_true: List[int], y_pred: List[int], num_classes: 
     if len(y_true_np) == 0:
         return {"accuracy": 0.0, "macro_f1": 0.0, "per_class": {}}
     
-    if save_cm:
+    if save_cm and SKLEARN_AVAILABLE:
         cm = confusion_matrix(y_true_np, y_pred_np, labels=list(range(num_classes)))
         plt.figure(figsize=(10, 8))
         plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
