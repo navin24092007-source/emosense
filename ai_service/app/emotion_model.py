@@ -12,19 +12,17 @@ from groq import Groq
 
 # PyTorch Deep Learning Inference Engine
 try:
-    import torch
-    import torch.nn as nn
-    import torch.nn.functional as F
-    from torchvision import transforms
+    import torch  # type: ignore
+    import torch.nn as nn  # type: ignore
+    import torch.nn.functional as F  # type: ignore
+    from torchvision import transforms  # type: ignore
     TORCH_AVAILABLE = True
-    _BaseModule = nn.Module
-except ImportError:
-    torch = None  # type: ignore
-    nn = None     # type: ignore
-    F = None      # type: ignore
-    transforms = None  # type: ignore
+except Exception:
+    torch: Any = None
+    nn: Any = None
+    F: Any = None
+    transforms: Any = None
     TORCH_AVAILABLE = False
-    _BaseModule = object  # type: ignore
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -39,14 +37,14 @@ _nn_model_loaded: bool = False
 # ==============================================================================
 # SQUEEZE-AND-EXCITATION RESIDUAL CNN ARCHITECTURE (SE-ResNet)
 # ==============================================================================
-if TORCH_AVAILABLE and nn is not None and F is not None and transforms is not None:
+if TORCH_AVAILABLE and nn is not None and F is not None and transforms is not None and torch is not None:
     class SEBlock(nn.Module):
         def __init__(self, channels: int, reduction: int = 16):
             super().__init__()
             self.fc1 = nn.Linear(channels, max(1, channels // reduction), bias=False)
             self.fc2 = nn.Linear(max(1, channels // reduction), channels, bias=False)
 
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
+        def forward(self, x: Any) -> Any:
             b, c, _, _ = x.size()
             y = F.adaptive_avg_pool2d(x, 1).view(b, c)
             y = F.relu(self.fc1(y), inplace=True)
@@ -69,7 +67,7 @@ if TORCH_AVAILABLE and nn is not None and F is not None and transforms is not No
                     nn.BatchNorm2d(out_channels)
                 )
 
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
+        def forward(self, x: Any) -> Any:
             out = F.relu(self.bn1(self.conv1(x)), inplace=True)
             out = self.bn2(self.conv2(out))
             out = self.se(out)
@@ -99,7 +97,7 @@ if TORCH_AVAILABLE and nn is not None and F is not None and transforms is not No
                 nn.Linear(128, num_classes)
             )
 
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
+        def forward(self, x: Any) -> Any:
             out = self.stem(x)
             out = self.layer1(out)
             out = self.layer2(out)
@@ -133,7 +131,7 @@ def get_pytorch_model() -> Optional[Any]:
     Lazily loads the fine-tuned SE-ResNet PyTorch model weights if present on disk.
     """
     global _nn_model, _nn_model_loaded
-    if not TORCH_AVAILABLE:
+    if not TORCH_AVAILABLE or torch is None:
         return None
     if _nn_model_loaded:
         return _nn_model
@@ -302,7 +300,7 @@ def analyze_opencv_facial_affect(bgr_image: np.ndarray) -> Dict[str, Any]:
 
     # 1. Deep Learning Inference (SE-ResNet PyTorch Model)
     nn_model = get_pytorch_model()
-    if nn_model is not None and TORCH_AVAILABLE and face_crop.size > 0:
+    if nn_model is not None and TORCH_AVAILABLE and torch is not None and _transform is not None and face_crop.size > 0:
         try:
             with torch.no_grad():
                 tensor = _transform(face_crop).unsqueeze(0)
@@ -316,9 +314,9 @@ def analyze_opencv_facial_affect(bgr_image: np.ndarray) -> Dict[str, Any]:
                     "emotion": dominant,
                     "confidence": confidence,
                     "all_probs": sorted_probs,
-                    "bbox": [int(fx), int(fy), int(fw), int(fh)]
+                    "bbox": [fx, fy, fw, fh]
                 }
-        except Exception as nn_err:
+        except Exception:
             pass
 
     face_norm = cv2.resize(face_crop, (160, 160), interpolation=cv2.INTER_AREA)
