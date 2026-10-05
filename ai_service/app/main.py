@@ -15,13 +15,9 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("[EmoSense AI] Preloading Hugging Face Vision Transformer model...")
-    try:
-        get_hf_pipeline()
-        print("[EmoSense AI] Model loaded successfully and ready for inference.")
-    except Exception as e:
-        print(f"[EmoSense AI] Startup preload warning: {e}")
+    print("[EmoSense AI] Microservice started. Listening on port for incoming requests...")
     yield
+    print("[EmoSense AI] Microservice shutting down...")
 
 app = FastAPI(
     title="EmoSense AI Microservice",

@@ -7,6 +7,7 @@ import json
 import time
 import base64
 import numpy as np
+import torch
 from typing import Dict, Any, List, Optional, Tuple
 from dotenv import load_dotenv
 from PIL import Image
@@ -27,16 +28,31 @@ _smile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_smil
 
 def get_hf_pipeline():
     """
-    Lazily initializes and returns the Hugging Face emotion classification pipeline.
+    Lazily initializes and returns the Hugging Face emotion classification pipeline
+    with bfloat16 and low_cpu_mem_usage to stay well within Render's 512MB RAM limit.
     """
     global _hf_pipeline
     if _hf_pipeline is None:
         try:
-            print(f"[Hugging Face] Loading Vision Transformer model ({PRIMARY_MODEL})...")
-            _hf_pipeline = pipeline("image-classification", model=PRIMARY_MODEL, top_k=len(EMOTION_LABELS))
-            print("[Hugging Face] Model loaded successfully.")
+            print(f"[Hugging Face] Loading Vision Transformer model ({PRIMARY_MODEL}) with low-memory bfloat16...")
+            _hf_pipeline = pipeline(
+                "image-classification", 
+                model=PRIMARY_MODEL, 
+                top_k=len(EMOTION_LABELS),
+                model_kwargs={
+                    "dtype": torch.bfloat16,
+                    "low_cpu_mem_usage": True
+                }
+            )
+            print("[Hugging Face] Model loaded successfully in low-memory mode.")
         except Exception as e:
-            print(f"[Hugging Face] Error loading model {PRIMARY_MODEL}: {e}")
+            print(f"[Hugging Face] Low-memory load attempt notice: {e}. Trying standard load...")
+            try:
+                _hf_pipeline = pipeline("image-classification", model=PRIMARY_MODEL, top_k=len(EMOTION_LABELS))
+                print("[Hugging Face] Model loaded successfully in standard mode.")
+            except Exception as e2:
+                print(f"[Hugging Face] Error loading model {PRIMARY_MODEL}: {e2}. Fallback geometry engine will be used.")
+                _hf_pipeline = None
     return _hf_pipeline
 
 
