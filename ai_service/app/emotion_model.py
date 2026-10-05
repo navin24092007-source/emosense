@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import re
 import cv2
@@ -6,7 +7,7 @@ import json
 import time
 import base64
 import numpy as np
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from dotenv import load_dotenv
 from PIL import Image
 from transformers import pipeline
