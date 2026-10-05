@@ -357,7 +357,7 @@ export const LiveEmotion: React.FC = () => {
             Live Emotion Recognition
           </h1>
           <p className="text-xs text-slate-400">
-            Real-time facial expression telemetry via Socket.io frame streaming & OpenCV CNN inference
+            Real-time facial expression telemetry via Socket.io frame streaming & Hugging Face Vision Transformer
           </p>
         </div>
 
@@ -373,7 +373,7 @@ export const LiveEmotion: React.FC = () => {
               }`}
             >
               <Zap className="w-3.5 h-3.5" />
-              Local SE-ResNet
+              Hugging Face ViT
             </button>
             <button
               onClick={() => {

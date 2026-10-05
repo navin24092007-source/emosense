@@ -32,27 +32,37 @@ def get_hf_pipeline():
     if _hf_pipeline is None:
         try:
             print(f"[Hugging Face] Loading Vision Transformer model ({PRIMARY_MODEL})...")
-            _hf_pipeline = pipeline("image-classification", model=PRIMARY_MODEL)
+            _hf_pipeline = pipeline("image-classification", model=PRIMARY_MODEL, top_k=len(EMOTION_LABELS))
             print("[Hugging Face] Model loaded successfully.")
         except Exception as e:
             print(f"[Hugging Face] Error loading model {PRIMARY_MODEL}: {e}")
     return _hf_pipeline
 
 
-def detect_face_bbox(gray: np.ndarray, img_w: int, img_h: int) -> tuple:
+def detect_face_bbox(gray: np.ndarray, img_w: int, img_h: int) -> Tuple[Tuple[int, int, int, int], bool]:
     """
-    Multi-cascade face detector for robust human face tracking under diverse angles.
+    Multi-cascade face detector with CLAHE contrast enhancement for dim/backlit scenes.
+    Returns ((x, y, w, h), face_found: bool)
     """
-    faces = _face_cascade_alt.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=3, minSize=(40, 40))
+    faces = _face_cascade_alt.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=3, minSize=(36, 36))
     if len(faces) == 0:
-        faces = _face_cascade_default.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(40, 40))
+        faces = _face_cascade_default.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(36, 36))
+
+    # If initial pass missed, try CLAHE equalization to recover faces in low light / backlit rooms
+    if len(faces) == 0:
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+        eq_gray = clahe.apply(gray)
+        faces = _face_cascade_alt.detectMultiScale(eq_gray, scaleFactor=1.08, minNeighbors=3, minSize=(36, 36))
+        if len(faces) == 0:
+            faces = _face_cascade_default.detectMultiScale(eq_gray, scaleFactor=1.1, minNeighbors=3, minSize=(36, 36))
 
     if len(faces) > 0:
         faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
         top_face = faces[0]
-        return int(top_face[0]), int(top_face[1]), int(top_face[2]), int(top_face[3])
-    
-    return int(img_w * 0.15), int(img_h * 0.15), int(img_w * 0.7), int(img_h * 0.7)
+        return (int(top_face[0]), int(top_face[1]), int(top_face[2]), int(top_face[3])), True
+
+    fallback_box = (int(img_w * 0.15), int(img_h * 0.15), int(img_w * 0.7), int(img_h * 0.7))
+    return fallback_box, False
 
 
 def analyze_opencv_facial_affect(bgr_image: np.ndarray) -> Dict[str, Any]:
@@ -70,7 +80,7 @@ def analyze_opencv_facial_affect(bgr_image: np.ndarray) -> Dict[str, Any]:
     img_h, img_w = bgr_image.shape[:2]
     gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
     
-    fx, fy, fw, fh = detect_face_bbox(gray, img_w, img_h)
+    (fx, fy, fw, fh), _ = detect_face_bbox(gray, img_w, img_h)
     
     face_raw = gray[max(0, fy):min(img_h, fy+fh), max(0, fx):min(img_w, fx+fw)]
     if face_raw.size == 0:
@@ -235,13 +245,22 @@ def predict_emotion(bgr_image: np.ndarray, is_static_upload: bool = False) -> Di
 
     orig_h, orig_w = bgr_image.shape[:2]
     gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
-    detected_bbox = detect_face_bbox(gray, orig_w, orig_h)
+    (fx, fy, fw, fh), face_found = detect_face_bbox(gray, orig_w, orig_h)
+    detected_bbox = (fx, fy, fw, fh)
+
+    # For live webcam frames, if no human face was detected anywhere, return no_face immediately
+    if not is_static_upload and not face_found:
+        return {
+            "emotion": "no_face",
+            "confidence": 0.0,
+            "all_probs": {l: 0.0 for l in EMOTION_LABELS},
+            "bbox": [0, 0, 0, 0]
+        }
     
     hf_pipe = get_hf_pipeline()
     if hf_pipe is not None:
         try:
             rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
-            fx, fy, fw, fh = detected_bbox
             
             # Crop with padding for optimal Vision Transformer classification
             pad_w = int(fw * 0.12)
@@ -256,15 +275,15 @@ def predict_emotion(bgr_image: np.ndarray, is_static_upload: bool = False) -> Di
                 face_crop = rgb_image
                 
             pil_image = Image.fromarray(face_crop)
-            predictions = hf_pipe(pil_image)
+            predictions = hf_pipe(pil_image, top_k=len(EMOTION_LABELS))
             
-            parsed_json = {"all_probs": {}}
+            parsed_json: Dict[str, Any] = {"all_probs": {}}
             for pred in predictions:
-                label = pred['label'].lower()
+                label = str(pred['label']).strip().lower()
                 parsed_json["all_probs"][label] = float(pred['score'])
             
             if predictions:
-                parsed_json["emotion"] = predictions[0]['label'].lower()
+                parsed_json["emotion"] = str(predictions[0]['label']).strip().lower()
                 parsed_json["confidence"] = float(predictions[0]['score'])
 
             return normalize_emotion_response(parsed_json, (orig_h, orig_w), default_bbox=list(detected_bbox))

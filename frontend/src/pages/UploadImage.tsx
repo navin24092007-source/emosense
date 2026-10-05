@@ -202,7 +202,7 @@ export const UploadImage: React.FC = () => {
               }`}
             >
               <Zap className="w-3.5 h-3.5" />
-              <span>Local SE-ResNet</span>
+              <span>Hugging Face ViT</span>
             </button>
             <button
               onClick={() => {
