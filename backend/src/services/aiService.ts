@@ -4,7 +4,18 @@ import http from 'http';
 import https from 'https';
 import { predictWithGroqVision } from './llmVisionService';
 
-const AI_SERVICE_URL = (process.env.AI_SERVICE_URL || 'http://localhost:8000').replace(/\/+$/, '');
+const getAiServiceUrl = (): string => {
+  if (process.env.AI_SERVICE_URL) {
+    return process.env.AI_SERVICE_URL.replace(/\/+$/, '');
+  }
+  // Smart production fallback: if running on Render / production and unset, point to the onrender domain
+  if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+    return 'https://emosense-ai-service.onrender.com';
+  }
+  return 'http://localhost:8000';
+};
+
+const AI_SERVICE_URL = getAiServiceUrl();
 
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 10 });
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 10 });
@@ -86,6 +97,7 @@ export const predictFrameFromBase64 = async (
     );
     return response.data;
   } catch (error: any) {
+    console.warn(`[Backend AI Service] Frame call to ${AI_SERVICE_URL}/predict_frame failed: ${error.message}`);
     const groqKey = process.env.GROQ_API_KEY;
     const now = Date.now();
 
@@ -104,6 +116,8 @@ export const predictFrameFromBase64 = async (
       } catch (groqErr: any) {
         console.warn('[Backend AI Service] Direct Groq Frame fallback error:', groqErr.message);
       }
+    } else if (!groqKey) {
+      console.warn(`[Backend AI Service] Notice: GROQ_API_KEY is unset and AI Service at ${AI_SERVICE_URL} was unreachable. Defaulting to neutral state.`);
     }
 
     if (lastFrameCachedResult && (now - lastFrameGroqTime < 4000)) {
